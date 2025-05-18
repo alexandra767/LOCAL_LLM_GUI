@@ -1,6 +1,35 @@
+# SwiftPM build artifacts
 .build/
 .swiftpm/
 xcuserdata/
 *.xcodeproj/
 DerivedData/
+
+# macOS metadata files
 .DS_Store
+
+# Xcode
+*.xcworkspace
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+*.xcuserstate
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+Packages/
+.build/
+.index/
+
+# Large files
+*.mdb
+*.ldb
+*.sqlite
+*.db
+*.lock
