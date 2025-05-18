@@ -1,0 +1,22 @@
+{
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:AI_GUI_PROJECT_LOCAL_LLMs}",
+            "name": "Debug Seraph",
+            "program": "${workspaceFolder:AI_GUI_PROJECT_LOCAL_LLMs}/.build/debug/Seraph",
+            "preLaunchTask": "swift: Build Debug Seraph"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:AI_GUI_PROJECT_LOCAL_LLMs}",
+            "name": "Release Seraph",
+            "program": "${workspaceFolder:AI_GUI_PROJECT_LOCAL_LLMs}/.build/release/Seraph",
+            "preLaunchTask": "swift: Build Release Seraph"
+        }
+    ]
+}
