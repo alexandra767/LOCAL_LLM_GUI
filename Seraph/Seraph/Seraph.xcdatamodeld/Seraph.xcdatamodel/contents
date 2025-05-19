@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="21513" systemVersion="21G115" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
+    <entity name="CDChat" representedClassName="CDChat" syncable="YES" codeGenerationType="class">
+        <attribute name="createdAt" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="id" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="isPinned" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
+        <attribute name="model" attributeType="String"/>
+        <attribute name="systemPrompt" attributeType="String"/>
+        <attribute name="title" attributeType="String"/>
+        <attribute name="updatedAt" attributeType="Date" usesScalarValueType="NO"/>
+        <relationship name="messages" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDMessage" inverseName="chat" inverseEntity="CDMessage"/>
+        <relationship name="project" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDProject" inverseName="chats" inverseEntity="CDProject"/>
+    </entity>
+    <entity name="CDDocumentAttachment" representedClassName="CDDocumentAttachment" syncable="YES" codeGenerationType="class">
+        <attribute name="createdAt" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="fileExtension" attributeType="String"/>
+        <attribute name="fileSize" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="id" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="name" attributeType="String"/>
+        <attribute name="preview" optional="YES" attributeType="String"/>
+        <attribute name="tokenCount" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="type" attributeType="String"/>
+        <attribute name="urlString" attributeType="String"/>
+        <relationship name="message" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDMessage" inverseName="attachments" inverseEntity="CDMessage"/>
+        <relationship name="project" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDProject" inverseName="documents" inverseEntity="CDProject"/>
+    </entity>
+    <entity name="Item" representedClassName="Item" syncable="YES" codeGenerationType="class">
+        <attribute name="timestamp" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+    </entity>
+    <entity name="CDMessage" representedClassName="CDMessage" syncable="YES" codeGenerationType="class">
+        <attribute name="content" attributeType="String"/>
+        <attribute name="id" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="isComplete" attributeType="Boolean" defaultValueString="YES" usesScalarValueType="YES"/>
+        <attribute name="role" attributeType="String"/>
+        <attribute name="timestamp" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="tokenCount" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
+        <relationship name="attachments" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="CDDocumentAttachment" inverseName="message" inverseEntity="CDDocumentAttachment"/>
+        <relationship name="chat" maxCount="1" deletionRule="Nullify" destinationEntity="CDChat" inverseName="messages" inverseEntity="CDChat"/>
+    </entity>
+    <entity name="CDProject" representedClassName="CDProject" syncable="YES" codeGenerationType="class">
+        <attribute name="color" attributeType="String" defaultValueString="#FF643D"/>
+        <attribute name="createdAt" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="id" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="isPinned" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
+        <attribute name="name" attributeType="String"/>
+        <attribute name="projectDescription" optional="YES" attributeType="String"/>
+        <attribute name="updatedAt" attributeType="Date" usesScalarValueType="NO"/>
+        <relationship name="chats" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="CDChat" inverseName="project" inverseEntity="CDChat"/>
+        <relationship name="documents" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="CDDocumentAttachment" inverseName="project" inverseEntity="CDDocumentAttachment"/>
+    </entity>
+    <entity name="CDSystemPrompt" representedClassName="CDSystemPrompt" syncable="YES" codeGenerationType="class">
+        <attribute name="content" attributeType="String"/>
+        <attribute name="createdAt" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="id" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="isDefault" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
+        <attribute name="name" attributeType="String"/>
+    </entity>
+    <entity name="CDUser" representedClassName="CDUser" syncable="YES" codeGenerationType="class">
+        <attribute name="createdAt" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="email" optional="YES" attributeType="String"/>
+        <attribute name="id" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="name" attributeType="String"/>
+        <attribute name="profileImageUrlString" optional="YES" attributeType="String"/>
+        <relationship name="preferences" optional="YES" maxCount="1" deletionRule="Cascade" destinationEntity="CDUserPreferences" inverseName="user" inverseEntity="CDUserPreferences"/>
+    </entity>
+    <entity name="CDUserPreferences" representedClassName="CDUserPreferences" syncable="YES" codeGenerationType="class">
+        <attribute name="accentColor" attributeType="String" defaultValueString="#FF643D"/>
+        <attribute name="defaultMaxTokens" attributeType="Integer 64" defaultValueString="2048" usesScalarValueType="YES"/>
+        <attribute name="defaultModel" attributeType="String" defaultValueString="ollama-Mistral 7B"/>
+        <attribute name="defaultSystemPrompt" attributeType="String" defaultValueString="You are a helpful AI assistant."/>
+        <attribute name="defaultTemperature" attributeType="Double" defaultValueString="0.7" usesScalarValueType="YES"/>
+        <attribute name="fontSize" attributeType="String" defaultValueString="medium"/>
+        <attribute name="id" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="isDarkMode" attributeType="Boolean" defaultValueString="YES" usesScalarValueType="YES"/>
+        <relationship name="user" maxCount="1" deletionRule="Nullify" destinationEntity="CDUser" inverseName="preferences" inverseEntity="CDUser"/>
+    </entity>
+</model>
