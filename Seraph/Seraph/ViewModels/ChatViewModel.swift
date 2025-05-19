@@ -149,15 +149,36 @@ class ChatViewModel: ObservableObject {
                                 chat.messages.append(errorMessage)
                                 self?.currentChat = chat
                             }
+                        } else {
+                            // Success - mark the message as complete
+                            if var chat = self?.currentChat,
+                               let lastIndex = chat.messages.lastIndex(where: { $0.role == .assistant }),
+                               chat.messages.indices.contains(lastIndex) {
+                                chat.messages[lastIndex].isComplete = true
+                                self?.currentChat = chat
+                            }
                         }
                     },
                     receiveValue: { [weak self] response in
                         // For streaming, add to current response text
                         responseText += response
                         
-                        // Update token count (approximation: ~4 chars per token)
-                        let tokenApproximation = responseText.count / 4
-                        self?.currentTokenCount = tokenApproximation > 0 ? tokenApproximation : 1
+                        // Improve token counting with a better estimate
+                        // Calculate tokens more accurately based on some heuristics
+                        
+                        // 1. Count tokens per word: roughly 0.75 tokens per word
+                        let wordCount = responseText.components(separatedBy: .whitespacesAndNewlines).count
+                        let wordTokenEstimate = Int(Double(wordCount) * 0.75)
+                        
+                        // 2. Count tokens by character: ~4 chars per token on average 
+                        let charTokenEstimate = responseText.count / 4
+                        
+                        // 3. Use a more conservative estimate that takes both into account
+                        // We'll use the higher of the two estimates as a safer approximation
+                        let tokenApproximation = max(wordTokenEstimate, charTokenEstimate)
+                        
+                        // Ensure at least 1 token is shown
+                        self?.currentTokenCount = max(1, tokenApproximation)
                         
                         // Use a simpler approach for processing responses to avoid conflicts between messages
                         if var chat = self?.currentChat, let self = self {
@@ -170,11 +191,13 @@ class ChatViewModel: ObservableObject {
                                 // Update existing message
                                 chat.messages[lastIndex].content = basicSanitized
                                 chat.messages[lastIndex].tokenCount = self.currentTokenCount
+                                chat.messages[lastIndex].isComplete = false // Mark as still generating
                             } else {
                                 // Create new message
                                 let aiMessage = Message(
                                     content: basicSanitized,
                                     role: .assistant,
+                                    isComplete: false, // Mark as still generating
                                     tokenCount: self.currentTokenCount
                                 )
                                 chat.messages.append(aiMessage)
@@ -256,51 +279,92 @@ class ChatViewModel: ObservableObject {
             return text
         }
         
-        // Keep it simple to avoid errors
         var cleaned = text
         
-        // Special handling for code blocks - we need to preserve these exactly as-is
-        let codeBlocks = extractCodeBlocks(from: cleaned)
-        var codeBlockPlaceholders: [String: String] = [:]
+        // Stage 1: Handle code blocks with a more robust approach
+        // We need to extract and protect code blocks from further processing
         
-        // Replace code blocks with placeholders to protect them during sanitization
-        for (index, block) in codeBlocks.enumerated() where block.isCodeBlock {
-            let placeholder = "__CODE_BLOCK_PLACEHOLDER_\(index)__"
-            codeBlockPlaceholders[placeholder] = block.text
+        // First identify all tripple backtick pairs
+        var codeBlockRanges: [(start: String.Index, end: String.Index, language: String)] = []
+        var searchRange = cleaned.startIndex..<cleaned.endIndex
+        
+        while let startRange = cleaned.range(of: "```", options: [], range: searchRange) {
+            // Find language identifier on same line
+            let lineEnd = cleaned[startRange.upperBound...].firstIndex(of: "\n") ?? cleaned.endIndex
+            let languageLine = String(cleaned[startRange.upperBound..<lineEnd]).trimmingCharacters(in: .whitespacesAndNewlines)
             
-            // Replace the original code block with the placeholder
-            // We need to include the backticks and language specifier
-            let language = block.language ?? ""
-            let fullBlock = "```\(language)\n\(block.text)\n```"
-            cleaned = cleaned.replacingOccurrences(of: fullBlock, with: placeholder)
+            // Look for the closing backticks
+            let searchStart = lineEnd != cleaned.endIndex ? cleaned.index(after: lineEnd) : cleaned.endIndex
+            if searchStart < cleaned.endIndex,
+               let endRange = cleaned[searchStart...].range(of: "```") {
+                // Found a complete code block
+                codeBlockRanges.append((startRange.lowerBound, endRange.upperBound, languageLine))
+                searchRange = endRange.upperBound..<cleaned.endIndex
+            } else {
+                // No closing backticks found, move past this opening set
+                searchRange = startRange.upperBound..<cleaned.endIndex
+            }
         }
         
-        // Basic XML tag handling
-        // Just remove standalone tags like <xyz> but preserve the content between tags
-        if let regex = try? NSRegularExpression(pattern: "<[^>]+>", options: []) {
+        // Create a dictionary of placeholders and replace code blocks
+        var codeBlockPlaceholders: [String: (content: String, language: String)] = [:]
+        
+        // Process in reverse to maintain indices
+        for (index, blockRange) in codeBlockRanges.enumerated().reversed() {
+            if blockRange.start < blockRange.end {
+                let language = blockRange.language
+                
+                // Content is everything between the opening line and closing backticks
+                let startLineEnd = cleaned[blockRange.start...].firstIndex(of: "\n") ?? cleaned.endIndex
+                
+                if startLineEnd < blockRange.end, 
+                   let endBlockStart = cleaned[..<blockRange.end].lastIndex(of: "`") {
+                    let contentStart = cleaned.index(after: startLineEnd)
+                    let contentEnd = cleaned.index(endBlockStart, offsetBy: -2)
+                    if contentStart <= contentEnd {
+                        let content = String(cleaned[contentStart..<contentEnd])
+                        
+                        // Create unique placeholder
+                        let placeholder = "__CODE_BLOCK_PLACEHOLDER_\(index)__"
+                        codeBlockPlaceholders[placeholder] = (content, language)
+                        
+                        // Replace the block with the placeholder
+                        cleaned.replaceSubrange(blockRange.start..<blockRange.end, with: placeholder)
+                    }
+                }
+            }
+        }
+        
+        // Stage 2: Basic XML tag handling while preserving specific tags
+        
+        // Remove standalone tags but preserve our special tags
+        if let regex = try? NSRegularExpression(pattern: "<(?!think|function_calls|/think|/function_calls)[^>]+>", options: []) {
             let range = NSRange(location: 0, length: cleaned.utf16.count)
             cleaned = regex.stringByReplacingMatches(in: cleaned, options: [], range: range, withTemplate: "")
         }
         
-        // Preserve thinking and function calls
-        // Add thinking markers
+        // Convert thinking and function call tags to readable format
         cleaned = cleaned.replacingOccurrences(of: "<think>", with: "\n\n💭 THINKING: \n")
         cleaned = cleaned.replacingOccurrences(of: "</think>", with: "\n\n")
-        
-        // Add function call markers
         cleaned = cleaned.replacingOccurrences(of: "<function_calls>", with: "\n\n💭 FUNCTION CALL: \n")
         cleaned = cleaned.replacingOccurrences(of: "</function_calls>", with: "\n\n")
         
-        // Clean up excessive whitespace
+        // Stage 3: Normalize whitespace
         cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Replace multiple consecutive newlines with just two
         while cleaned.contains("\n\n\n") {
             cleaned = cleaned.replacingOccurrences(of: "\n\n\n", with: "\n\n")
         }
         
-        // Restore code blocks from placeholders
-        for (placeholder, codeBlock) in codeBlockPlaceholders {
-            let language = extractLanguageFromCodeBlock(codeBlock) ?? ""
-            cleaned = cleaned.replacingOccurrences(of: placeholder, with: "```\(language)\n\(codeBlock)\n```")
+        // Stage 4: Restore code blocks
+        for (placeholder, blockInfo) in codeBlockPlaceholders {
+            let language = blockInfo.language.isEmpty ? "" : blockInfo.language
+            let content = blockInfo.content
+            
+            // Restore with proper formatting
+            let formattedBlock = "```\(language)\n\(content)\n```"
+            cleaned = cleaned.replacingOccurrences(of: placeholder, with: formattedBlock)
         }
         
         return cleaned

@@ -252,13 +252,50 @@ struct TokenStatsView: View {
                 ? String(format: "%.1fk", Double(tokenCount) / 1000.0)
                 : "\(tokenCount)"
             
-            Text("(\(String(format: "%.1fs", processingTime)) ↑ \(formattedTokenCount) tokens · \(String(format: "%.1f", tokenRate)) t/s · esc to interrupt)")
-                .font(.system(.caption, design: .monospaced))
-                .foregroundColor(.gray)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Color.black.opacity(0.2))
-                .cornerRadius(4)
+            // More structured token stats display
+            HStack(spacing: 12) {
+                // Time
+                HStack(spacing: 4) {
+                    Image(systemName: "clock")
+                        .font(.system(size: 10))
+                    Text("\(String(format: "%.1fs", processingTime))")
+                }
+                
+                // Token count
+                HStack(spacing: 4) {
+                    Image(systemName: "number")
+                        .font(.system(size: 10))
+                    Text("\(formattedTokenCount)")
+                }
+                
+                // Token rate
+                HStack(spacing: 4) {
+                    Image(systemName: "speedometer")
+                        .font(.system(size: 10))
+                    Text("\(String(format: "%.1f", tokenRate))/s")
+                }
+                
+                // Interrupt hint
+                HStack(spacing: 4) {
+                    Text("ESC")
+                        .fontWeight(.semibold)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(Color.black.opacity(0.5))
+                        .cornerRadius(3)
+                    Text("to cancel")
+                }
+            }
+            .font(.system(.caption, design: .monospaced))
+            .foregroundColor(.white.opacity(0.8))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color(hex: "#1B3C37"))
+            .cornerRadius(6)
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(Color.green.opacity(0.3), lineWidth: 1)
+            )
             
             Spacer()
         }
@@ -347,13 +384,23 @@ struct MessageHeaderView: View {
     
     var body: some View {
         HStack {
-            Text(message.role.rawValue.capitalized)
-                .font(.caption)
-                .foregroundColor(.gray)
+            // Role with completion status for assistant
+            HStack(spacing: 4) {
+                Text(message.role.rawValue.capitalized)
+                    .font(.caption)
+                    .foregroundColor(.gray)
+                
+                // Show completion status for assistant
+                if message.role == .assistant && !message.isComplete {
+                    Image(systemName: "ellipsis")
+                        .font(.caption)
+                        .foregroundColor(.gray.opacity(0.7))
+                }
+            }
             
             Spacer()
             
-            HStack(spacing: 4) {
+            HStack(spacing: 8) {
                 // Token count for assistant messages
                 if message.role == .assistant, let tokenCount = message.tokenCount {
                     // Format token count with k suffix for thousands
@@ -361,14 +408,29 @@ struct MessageHeaderView: View {
                         ? String(format: "%.1fk", Double(tokenCount) / 1000.0)
                         : "\(tokenCount)"
                     
-                    Text("[\(formattedTokenCount) tokens]")
-                        .font(.system(.caption2, design: .monospaced))
-                        .foregroundColor(.gray.opacity(0.8))
+                    HStack(spacing: 2) {
+                        Image(systemName: "number")
+                            .font(.system(size: 8))
+                            .foregroundColor(.gray.opacity(0.8))
+                        
+                        Text("\(formattedTokenCount)")
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundColor(.gray.opacity(0.8))
+                    }
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(Color.black.opacity(0.2))
+                    .cornerRadius(3)
                 }
                 
-                Text(formattedDate(message.timestamp))
-                    .font(.caption2)
-                    .foregroundColor(.gray)
+                HStack(spacing: 2) {
+                    Image(systemName: "clock")
+                        .font(.system(size: 8))
+                    
+                    Text(formattedDate(message.timestamp))
+                        .font(.caption2)
+                }
+                .foregroundColor(.gray)
             }
         }
     }
@@ -393,7 +455,7 @@ struct MessageContentView: View {
             }
         }
         .padding(10)
-        .background(Color.green.opacity(0.1))
+        .background(Color(hex: content.contains("Error:") ? "#462A30" : "#22332C"))
         .cornerRadius(8)
     }
 }
@@ -625,15 +687,22 @@ struct FormatMessageText: View {
                     if component.isCodeBlock {
                         codeBlockView(for: component)
                     } else {
-                        Text(component.text)
-                            .lineLimit(nil)
-                            .foregroundColor(.white)
+                        // For regular text, check if it's not just whitespace
+                        if !component.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Text(LocalizedStringKey(component.text))
+                                .textSelection(.enabled)
+                                .lineLimit(nil)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .foregroundColor(.white)
+                        }
                     }
                 }
             } else {
                 // Otherwise just show as plain text
-                Text(content)
+                Text(LocalizedStringKey(content))
+                    .textSelection(.enabled)
                     .lineLimit(nil)
+                    .fixedSize(horizontal: false, vertical: true)
                     .foregroundColor(.white)
             }
         }
@@ -641,29 +710,51 @@ struct FormatMessageText: View {
     
     private func codeBlockView(for component: TextComponent) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            // Language indicator (only show if we have a language)
-            if let language = component.language, !language.isEmpty {
-                HStack {
+            // Header with language and copy button
+            HStack {
+                // Language indicator
+                if let language = component.language, !language.isEmpty {
                     Text(language)
                         .font(.caption)
+                        .fontWeight(.medium)
                         .foregroundColor(.gray)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                    
-                    Spacer()
+                } else {
+                    Text("code")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundColor(.gray)
                 }
-                .background(Color.black.opacity(0.6))
-                .clipShape(RoundedCorner(radius: 6, corners: [.topLeft, .topRight]))
+                
+                Spacer()
+                
+                // Copy button
+                Button(action: {
+                    #if os(macOS)
+                    let pasteboard = NSPasteboard.general
+                    pasteboard.clearContents()
+                    pasteboard.setString(component.text, forType: .string)
+                    #endif
+                }) {
+                    Image(systemName: "doc.on.doc")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                }
+                .buttonStyle(PlainButtonStyle())
             }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color.black.opacity(0.6))
+            .clipShape(RoundedCorner(radius: 6, corners: [.topLeft, .topRight]))
             
             // Code content with syntax highlighting
-            ScrollView(.horizontal, showsIndicators: false) {
+            ScrollView(.horizontal, showsIndicators: true) {
                 if let language = component.language, 
                    !language.isEmpty, 
                    (language.lowercased() == "python" || language.lowercased() == "swift") {
                     // Use enhanced syntax highlighting for Python or Swift
                     SyntaxHighlightedText(code: component.text, language: language.lowercased())
                         .padding(8)
+                        .textSelection(.enabled)
                 } else {
                     // For other languages or no language specified, use basic monospaced text
                     Text(component.text)
@@ -671,9 +762,11 @@ struct FormatMessageText: View {
                         .font(.system(.body, design: .monospaced))
                         .foregroundColor(.green.opacity(0.9))
                         .padding(8)
+                        .textSelection(.enabled)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(hex: "#121212"))
         }
         .background(Color(hex: "#1E1E1E"))
         .clipShape(RoundedRectangle(cornerRadius: 6))
