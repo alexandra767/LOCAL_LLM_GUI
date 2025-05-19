@@ -19,6 +19,9 @@ class AppState: ObservableObject {
     // MARK: - Connection Status
     @Published var connectionStatus: ConnectionStatus = .connecting
     
+    // MARK: - Processing Status
+    @Published var isProcessingMessage: Bool = false
+    
     // MARK: - Selected Model
     @Published var selectedModel: LLMModel = .ollama(.mistral7b)
     
@@ -30,6 +33,25 @@ class AppState: ObservableObject {
     
     // MARK: - User
     @Published var userPreferences = UserPreferences()
+    
+    // MARK: - Advanced Configuration Options
+    
+    /// Flag to always use the generate endpoint instead of chat endpoint
+    /// This avoids JSON parsing issues with models like DeepSeek
+    @Published var alwaysUseGenerateEndpoint: Bool = true
+    
+    /// Flag to enable aggressive token counting by character estimate
+    @Published var useAggressiveTokenCounting: Bool = true
+    
+    /// Flag to enable specialized creative content handling for DeepSeek models
+    /// This helps with story generation and other creative tasks
+    @Published var enableCreativeContentMode: Bool = true
+    
+    /// Conservative parameters for creative content to prevent JSON issues
+    @Published var useConservativeParamsForCreative: Bool = true
+    
+    /// Debug mode to show raw model responses
+    @Published var debugMode: Bool = false
     
     private init() {
         // Empty initialization
@@ -48,6 +70,30 @@ class AppState: ObservableObject {
 }
 
 // Minimal required enums and structs
+
+// A global error handler to ensure processing state is reset
+class GlobalErrorHandler {
+    static func resetProcessingState() {
+        DispatchQueue.main.async {
+            if AppState.shared.isProcessingMessage {
+                print("GlobalErrorHandler: Forcing reset of processing state")
+                AppState.shared.isProcessingMessage = false
+            }
+        }
+    }
+    
+    static func startProcessingTimeout() {
+        // Set a fail-safe timeout that will reset processing state after 2 minutes
+        // This ensures the app can't get permanently stuck
+        DispatchQueue.main.asyncAfter(deadline: .now() + 120) {
+            if AppState.shared.isProcessingMessage {
+                print("GlobalErrorHandler: Processing timeout triggered - forcing reset")
+                AppState.shared.isProcessingMessage = false
+            }
+        }
+    }
+}
+
 enum Tab: String {
     case chat = "Chat"
     case projects = "Projects" 
