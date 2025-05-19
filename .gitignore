@@ -1,35 +1,59 @@
-# SwiftPM build artifacts
-.build/
-.swiftpm/
-xcuserdata/
-*.xcodeproj/
-DerivedData/
-
-# macOS metadata files
-.DS_Store
-
 # Xcode
-*.xcworkspace
-*.pbxuser
-*.mode1v3
-*.mode2v3
-*.perspectivev3
+.DS_Store
 *.xcuserstate
-*.xccheckout
-*.moved-aside
-*.hmap
-*.ipa
-*.dSYM.zip
-*.dSYM
+*.xcworkspace/
+xcuserdata/
+derivedData/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/
 
 # Swift Package Manager
-Packages/
 .build/
-.index/
+Packages/
+Package.pins
+Package.resolved
+*.xcodeproj
 
-# Large files
-*.mdb
-*.ldb
-*.sqlite
-*.db
-*.lock
+# SwiftPM
+.swiftpm/
+
+# Build
+build/
+DerivedData/
+
+# AppCode
+.idea/
+
+# VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# Local development
+.env
+.env.local
+
+# Logs
+logs/
+*.log
+
+# System Files
+.DS_Store
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Project specific
+Seraph/.build/
+Seraph/.swiftpm/
+Seraph/Package.resolved
+Seraph/Package.pins
+Seraph/*.xcodeproj/
+Seraph/*.xcworkspace/
+Seraph/DerivedData/

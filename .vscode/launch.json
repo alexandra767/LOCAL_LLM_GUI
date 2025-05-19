@@ -4,19 +4,37 @@
             "type": "lldb",
             "request": "launch",
             "args": [],
-            "cwd": "${workspaceFolder:AI_GUI_PROJECT_LOCAL_LLMs}",
-            "name": "Debug Seraph",
-            "program": "${workspaceFolder:AI_GUI_PROJECT_LOCAL_LLMs}/.build/debug/Seraph",
-            "preLaunchTask": "swift: Build Debug Seraph"
+            "cwd": "${workspaceFolder:AI_GUI_PROJECT_LOCAL_LLMs}/Seraph",
+            "name": "Debug SeraphApp (Seraph)",
+            "program": "${workspaceFolder:AI_GUI_PROJECT_LOCAL_LLMs}/Seraph/.build/debug/SeraphApp",
+            "preLaunchTask": "swift: Build Debug SeraphApp (Seraph)"
         },
         {
             "type": "lldb",
             "request": "launch",
             "args": [],
-            "cwd": "${workspaceFolder:AI_GUI_PROJECT_LOCAL_LLMs}",
-            "name": "Release Seraph",
-            "program": "${workspaceFolder:AI_GUI_PROJECT_LOCAL_LLMs}/.build/release/Seraph",
-            "preLaunchTask": "swift: Build Release Seraph"
+            "cwd": "${workspaceFolder:AI_GUI_PROJECT_LOCAL_LLMs}/Seraph",
+            "name": "Release SeraphApp (Seraph)",
+            "program": "${workspaceFolder:AI_GUI_PROJECT_LOCAL_LLMs}/Seraph/.build/release/SeraphApp",
+            "preLaunchTask": "swift: Build Release SeraphApp (Seraph)"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:AI_GUI_PROJECT_LOCAL_LLMs}/Seraph",
+            "name": "Debug Seraph (Seraph)",
+            "program": "${workspaceFolder:AI_GUI_PROJECT_LOCAL_LLMs}/Seraph/.build/debug/Seraph",
+            "preLaunchTask": "swift: Build Debug Seraph (Seraph)"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:AI_GUI_PROJECT_LOCAL_LLMs}/Seraph",
+            "name": "Release Seraph (Seraph)",
+            "program": "${workspaceFolder:AI_GUI_PROJECT_LOCAL_LLMs}/Seraph/.build/release/Seraph",
+            "preLaunchTask": "swift: Build Release Seraph (Seraph)"
         }
     ]
 }
