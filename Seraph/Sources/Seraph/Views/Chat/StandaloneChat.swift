@@ -4,10 +4,47 @@ import Foundation
 import AppKit
 import LLMService
 
-@MainActor
-struct ChatView: View {
-    // MARK: - Properties
+// A completely standalone chat window that doesn't share the main navigation/view hierarchy
+class ChatWindowController: NSWindowController {
+    private var conversation: Conversation
+    private var appState: AppState
     
+    init(conversation: Conversation, appState: AppState) {
+        self.conversation = conversation
+        self.appState = appState
+        
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 600),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        
+        window.title = conversation.title
+        window.center()
+        window.setFrameAutosaveName("ChatWindow")
+        
+        // Create standalone chat view without navigation dependencies
+        let chatView = StandaloneChatView(conversation: conversation)
+            .environmentObject(appState)
+        
+        // Use NSHostingView to embed SwiftUI view in NSWindow
+        window.contentView = NSHostingView(rootView: chatView)
+        
+        super.init(window: window)
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+    
+    func showWindow() {
+        window?.makeKeyAndOrderFront(nil)
+    }
+}
+
+// Standalone chat view without navigation dependencies
+struct StandaloneChatView: View {
     @ObservedObject var conversation: Conversation
     @State private var messageText: String = ""
     @State private var isProcessing: Bool = false
@@ -18,14 +55,10 @@ struct ChatView: View {
     @State private var showingError: Bool = false
     @EnvironmentObject private var appState: AppState
     
-    // MARK: - Initialization
-    
     init(conversation: Conversation) {
         self.conversation = conversation
         _systemPrompt = State(initialValue: conversation.systemPrompt)
     }
-    
-    // MARK: - Message Handling
     
     private func sendMessage() {
         let text = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -101,8 +134,6 @@ struct ChatView: View {
         cancellables.insert(cancellable)
     }
     
-    // MARK: - View Components
-    
     private var chatMessagesView: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -126,26 +157,26 @@ struct ChatView: View {
         .background(Color(NSColor.windowBackgroundColor))
     }
     
-    private func promptUserWithAlert() {
-        let alert = NSAlert()
-        alert.messageText = "Type your message"
-        alert.addButton(withTitle: "Send")
-        alert.addButton(withTitle: "Cancel")
-        
-        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
-        alert.accessoryView = textField
-        
-        // Focus the text field
-        DispatchQueue.main.async {
-            alert.window?.makeFirstResponder(textField)
-        }
-        
-        if alert.runModal() == .alertFirstButtonReturn {
-            let text = textField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !text.isEmpty {
-                messageText = text
-                sendMessage()
+    // Simple native input field
+    private var inputArea: some View {
+        VStack(spacing: 0) {
+            Divider()
+            
+            HStack(spacing: 12) {
+                TextField("Type a message...", text: $messageText, onCommit: sendMessage)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .disabled(isProcessing)
+                
+                Button(action: sendMessage) {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 24))
+                        .foregroundColor(.accentColor)
+                }
+                .buttonStyle(PlainButtonStyle())
+                .disabled(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isProcessing)
             }
+            .padding()
+            .background(Color(NSColor.controlBackgroundColor))
         }
     }
     
@@ -159,10 +190,11 @@ struct ChatView: View {
             .pickerStyle(MenuPickerStyle())
             .frame(width: 200)
             
+            Spacer()
+            
             Button(action: {
                 Task {
                     await appState.llmService.scanForLocalModels()
-                    // Refresh the selectedModel after scanning
                     if let defaultModel = AIModel.allModels.first {
                         selectedModel = defaultModel
                     }
@@ -173,23 +205,14 @@ struct ChatView: View {
                     .foregroundColor(.accentColor)
             }
             .buttonStyle(PlainButtonStyle())
-            .help("Refresh model list")
         }
     }
-    
-    // MARK: - Body
     
     var body: some View {
         VStack(spacing: 0) {
             // Toolbar
             HStack {
                 modelPicker
-                Spacer()
-                
-                Button(action: showSettings) {
-                    Image(systemName: "gear")
-                }
-                .buttonStyle(PlainButtonStyle())
             }
             .padding()
             .background(Color(NSColor.controlBackgroundColor))
@@ -197,41 +220,15 @@ struct ChatView: View {
             // Main chat area
             chatMessagesView
             
-            // Button to open standalone window for reliable input
-            VStack(spacing: 0) {
-                Divider()
-                
-                HStack {
-                    Button(action: {
-                        // Open standalone window
-                        conversation.openInStandaloneWindow(with: appState)
-                    }) {
-                        HStack {
-                            Text("💬 Open in new window for better typing")
-                                .foregroundColor(.accentColor)
-                            Spacer()
-                        }
-                        .padding()
-                    }
-                    .buttonStyle(BorderedButtonStyle())
-                    
-                    Button(action: promptUserWithAlert) {
-                        Text("📝 Or use dialog")
-                            .foregroundColor(.gray)
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                }
-                .padding()
-                .background(Color(NSColor.controlBackgroundColor))
-            }
+            // Input area 
+            inputArea
         }
-        .navigationTitle(conversation.title)
-        .alert("Error", isPresented: $showingError) {
-            Button("OK") {
-                showingError = false
-            }
-        } message: {
-            Text(errorMessage ?? "An unknown error occurred")
+        .alert(isPresented: $showingError) {
+            Alert(
+                title: Text("Error"),
+                message: Text(errorMessage ?? "An unknown error occurred"),
+                dismissButton: .default(Text("OK"))
+            )
         }
         .onAppear {
             // Make sure there's at least one message in the conversation
@@ -251,43 +248,9 @@ struct ChatView: View {
             }
         }
     }
-    
-    private func showSettings() {
-        let settingsView = NavigationView {
-            Form {
-                Section(header: Text("System Prompt")) {
-                    TextEditor(text: $systemPrompt)
-                        .frame(height: 100)
-                }
-                
-                Section(header: Text("Model Settings")) {
-                    Picker("Model", selection: $selectedModel) {
-                        ForEach(AIModel.allCases.filter { !$0.requiresAPIKey }) { model in
-                            Text(model.displayName).tag(model)
-                        }
-                    }
-                }
-            }
-            .padding()
-            .frame(width: 500, height: 400)
-        }
-        
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        
-        window.center()
-        window.title = "Chat Settings"
-        window.contentView = NSHostingView(rootView: settingsView)
-        window.makeKeyAndOrderFront(nil)
-    }
 }
 
-// MARK: - Message View
-
+// Message bubble view component
 struct MessageBubble: View {
     let message: Message
     
@@ -357,33 +320,10 @@ struct MessageBubble: View {
     }
 }
 
-// MARK: - Preview
-
-#if DEBUG
-struct ChatView_Previews: PreviewProvider {
-    static var previews: some View {
-        let conversation = Conversation(
-            title: "Preview Conversation",
-            messages: [
-                Message(
-                    id: UUID(),
-                    content: "Hello, how can I help you today?",
-                    timestamp: Date(),
-                    isFromUser: true,
-                    status: .sent
-                ),
-                Message(
-                    id: UUID(),
-                    content: "I'm doing well, thank you for asking! How can I assist you?",
-                    timestamp: Date(),
-                    isFromUser: false,
-                    status: .sent
-                )
-            ]
-        )
-        return ChatView(conversation: conversation)
-            .environmentObject(AppState.shared)
-            .frame(width: 400, height: 600)
+// Helper to open a standalone chat window
+extension Conversation {
+    func openInStandaloneWindow(with appState: AppState) {
+        let windowController = ChatWindowController(conversation: self, appState: appState)
+        windowController.showWindow()
     }
 }
-#endif
