@@ -13,9 +13,14 @@ public final class ChatViewModel: ObservableObject {
     
     // MARK: - Initialization
     
-    init(conversation: Conversation, llmService: LLMServiceProtocol = LLMService.shared) {
+    init(conversation: Conversation, llmService: LLMServiceProtocol) {
         self.conversation = conversation
         self.llmService = llmService
+    }
+    
+    @MainActor
+    convenience init(conversation: Conversation) {
+        self.init(conversation: conversation, llmService: LLMService.shared)
     }
     
     // MARK: - Public Methods
@@ -143,6 +148,7 @@ extension ChatViewModel {
 }
 
 // Dummy LLMService for previews
+@MainActor
 private class PreviewLLMService: LLMServiceProtocol {
     var baseURL: URL?
     var apiKey: String?
@@ -152,6 +158,7 @@ private class PreviewLLMService: LLMServiceProtocol {
     var topP: Double = 0.9
     var presencePenalty: Double = 0.0
     var frequencyPenalty: Double = 0.0
+    private var cancellables = Set<AnyCancellable>()
     
     var defaultModel: AIModel {
         AIModel.allModels.first(where: { $0.id == defaultModelId }) ?? .llama3
@@ -203,6 +210,15 @@ private class PreviewLLMService: LLMServiceProtocol {
                     .setFailureType(to: Error.self)
             }
             .eraseToAnyPublisher()
+    }
+    
+    func sendMessage(
+        _ message: String,
+        conversation: Conversation,
+        systemPrompt: String,
+        model: AIModel
+    ) async throws -> String {
+        return "This is a sample response for the message: \(message)"
     }
     
     func generateResponse(

@@ -86,11 +86,14 @@ public struct ProjectView: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     if viewModel.isEditing {
-                        TextField("Project Name", text: $project.name)
+                        TextField("Project Name", text: Binding(
+                            get: { viewModel.project.name },
+                            set: { viewModel.project.name = $0 }
+                        ))
                             .font(.title2.bold())
                             .textFieldStyle(.plain)
                     } else {
-                        Text(project.name)
+                        Text(viewModel.project.name)
                             .font(.title2.bold())
                     }
                     
@@ -122,13 +125,16 @@ public struct ProjectView: View {
                 }
                 
                 if viewModel.isEditing {
-                    TextEditor(text: $project.description)
+                    TextEditor(text: Binding(
+                        get: { viewModel.project.description },
+                        set: { viewModel.project.description = $0 }
+                    ))
                         .frame(height: 80)
                         .padding(4)
                         .background(Color(.textBackgroundColor))
                         .clipShape(RoundedRectangle(cornerRadius: 6))
-                } else if !project.description.isEmpty {
-                    Text(project.description)
+                } else if !viewModel.project.description.isEmpty {
+                    Text(viewModel.project.description)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -174,7 +180,9 @@ public struct ProjectView: View {
                         }
                         .contextMenu {
                             Button(role: .destructive) {
-                                deleteConversation(conversation)
+                                if let index = projectConversations.firstIndex(where: { $0.id == conversation.id }) {
+                                    deleteConversation(at: IndexSet([index]))
+                                }
                             } label: {
                                 Label("Delete", systemImage: "trash")
                             }
@@ -237,7 +245,7 @@ public struct ProjectView: View {
     //     _ = await appState.createNewConversation(title: "Sample Conversation 2", systemPrompt: "", inProject: project.id)
     // }
     
-    ProjectView(project: .constant(project), appState: appState)
+    ProjectView(project: project)
         .environmentObject(appState)
 }
 
@@ -253,6 +261,6 @@ public struct ProjectView: View {
     //     await appState.createProject(title: project.name)
     // }
     
-    ProjectView(project: .constant(project), appState: appState)
+    ProjectView(project: project)
         .environmentObject(appState)
 }

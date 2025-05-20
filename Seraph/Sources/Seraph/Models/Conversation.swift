@@ -4,30 +4,67 @@ import Combine
 
 /// Represents a conversation in the app, containing a series of messages between the user and the AI.
 /// This class is observable and codable for persistence.
-@MainActor
 public final class Conversation: ConversationProtocol, Identifiable, ObservableObject, Codable, @unchecked Sendable {
+    // MARK: - Type Aliases
     public typealias MessageType = Message
     
-    // MARK: - Properties
-    
-    public let id: UUID
-    public var title: String
-    public var lastMessage: String
-    public var timestamp: Date
-    public var unreadCount: Int
-    public var projectId: UUID?
-    public var systemPrompt: String
-    @Published public var messages: [Message] = []
+    // MARK: - Published Properties
+    public nonisolated let objectWillChange = ObservableObjectPublisher()
     
     // MARK: - Private Properties
+    private let accessQueue = DispatchQueue(label: "com.seraph.conversation", attributes: .concurrent)
+    private var _title: String
+    private var _lastMessage: String
+    private var _timestamp: Date
+    private var _unreadCount: Int
+    private var _projectId: UUID?
+    private var _systemPrompt: String
+    private var _messages: [Message]
+    private var _isPinned: Bool
     
-    private enum CodingKeys: String, CodingKey {
-        case id, title, lastMessage, timestamp, unreadCount, projectId, systemPrompt, messages
+    // MARK: - Public Properties
+    public let id: UUID
+    public let createdAt: Date
+    public var updatedAt: Date
+    
+    public var title: String {
+        get { accessQueue.sync { _title } }
+        set { updateProperty("title", newValue: newValue) }
     }
     
-    // Required by ObservableObject
-    public var objectWillChange: ObservableObjectPublisher {
-        return $messages.objectWillChange
+    public var lastMessage: String {
+        get { accessQueue.sync { _lastMessage } }
+        set { updateProperty("lastMessage", newValue: newValue) }
+    }
+    
+    public var timestamp: Date {
+        get { accessQueue.sync { _timestamp } }
+        set { updateProperty("timestamp", newValue: newValue) }
+    }
+    
+    public var unreadCount: Int {
+        get { accessQueue.sync { _unreadCount } }
+        set { updateProperty("unreadCount", newValue: newValue) }
+    }
+    
+    public var projectId: UUID? {
+        get { accessQueue.sync { _projectId } }
+        set { updateProperty("projectId", newValue: newValue) }
+    }
+    
+    public var systemPrompt: String {
+        get { accessQueue.sync { _systemPrompt } }
+        set { updateProperty("systemPrompt", newValue: newValue) }
+    }
+    
+    public var messages: [Message] {
+        get { accessQueue.sync { _messages } }
+        set { updateProperty("messages", newValue: newValue) }
+    }
+    
+    public var isPinned: Bool {
+        get { accessQueue.sync { _isPinned } }
+        set { updateProperty("isPinned", newValue: newValue) }
     }
     
     // MARK: - Initialization
@@ -40,212 +77,20 @@ public final class Conversation: ConversationProtocol, Identifiable, ObservableO
         unreadCount: Int = 0,
         projectId: UUID? = nil,
         systemPrompt: String = "",
-        messages: [Message] = []
-    ) {
-        self.id = id
-        self.title = title
-        self.lastMessage = lastMessage
-        self.timestamp = timestamp
-        self.unreadCount = unreadCount
-        self.projectId = projectId
-        self.systemPrompt = systemPrompt
-        self.messages = messages
-    }
-    
-    public convenience init(title: String) {
-        self.init(
-            id: UUID(),
-            title: title,
-            lastMessage: "",
-            timestamp: Date(),
-            unreadCount: 0,
-            projectId: nil,
-            systemPrompt: "",
-            messages: []
-        )
-    }
-    
-    // MARK: - Codable
-    
-    public required init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decode(UUID.self, forKey: .id)
-        title = try container.decode(String.self, forKey: .title)
-        lastMessage = try container.decode(String.self, forKey: .lastMessage)
-        timestamp = try container.decode(Date.self, forKey: .timestamp)
-        unreadCount = try container.decode(Int.self, forKey: .unreadCount)
-        projectId = try container.decodeIfPresent(UUID.self, forKey: .projectId)
-        systemPrompt = try container.decode(String.self, forKey: .systemPrompt)
-        messages = try container.decode([Message].self, forKey: .messages)
-    }
-    
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(id, forKey: .id)
-        try container.encode(title, forKey: .title)
-        try container.encode(lastMessage, forKey: .lastMessage)
-        try container.encode(timestamp, forKey: .timestamp)
-        try container.encode(unreadCount, forKey: .unreadCount)
-        try container.encodeIfPresent(projectId, forKey: .projectId)
-        try container.encode(systemPrompt, forKey: .systemPrompt)
-        try container.encode(messages, forKey: .messages)
-    }
-    
-    // MARK: - ConversationProtocol
-    
-    public func addMessage(_ message: Message) {
-        messages.append(message)
-        lastMessage = message.content
-        timestamp = message.timestamp
-        if !message.isFromUser && message.status != .read {
-            unreadCount += 1
-        }
-    }
-    
-    public func markAsRead() {
-        unreadCount = 0
-        for i in messages.indices where messages[i].status != .read {
-            messages[i].status = .read
-        }
-    }
-    
-    public func updateTitle(_ newTitle: String) {
-        title = newTitle
-    }
-    
-    public func moveToProject(_ projectId: UUID?) {
-        self.projectId = projectId
-    }
-    @MainActor public var objectWillChange: ObservableObjectPublisher? = nil
-    
-    private let accessQueue = DispatchQueue(label: "com.seraph.conversation", attributes: .concurrent)
-    private var _messages: [Message] = []
-    
-    public typealias MessageType = Message
-    
-    // MARK: - Properties
-    
-    public let id: UUID
-    private var _title: String
-    private var _lastMessage: String
-    private var _timestamp: Date
-    private var _unreadCount: Int
-    private var _projectId: UUID?
-    private var _systemPrompt: String
-    
-    public var title: String {
-        get { accessQueue.sync { _title } }
-        set { accessQueue.async(flags: .barrier) { [weak self] in
-            self?._title = newValue
-            DispatchQueue.main.async {
-                self?.objectWillChange?.send()
-            }
-        }}
-    }
-    
-    public var lastMessage: String {
-        get { accessQueue.sync { _lastMessage } }
-        set { accessQueue.async(flags: .barrier) { [weak self] in
-            self?._lastMessage = newValue
-            DispatchQueue.main.async {
-                self?.objectWillChange?.send()
-            }
-        }}
-    }
-    
-    public var timestamp: Date {
-        get { accessQueue.sync { _timestamp } }
-        set { accessQueue.async(flags: .barrier) { [weak self] in
-            self?._timestamp = newValue
-            DispatchQueue.main.async {
-                self?.objectWillChange?.send()
-            }
-        }}
-    }
-    
-    public var unreadCount: Int {
-        get { accessQueue.sync { _unreadCount } }
-        set { accessQueue.async(flags: .barrier) { [weak self] in
-            self?._unreadCount = newValue
-            DispatchQueue.main.async {
-                self?.objectWillChange?.send()
-            }
-        }}
-    }
-    
-    public var projectId: UUID? {
-        get { accessQueue.sync { _projectId } }
-        set { accessQueue.async(flags: .barrier) { [weak self] in
-            self?._projectId = newValue
-            DispatchQueue.main.async {
-                self?.objectWillChange?.send()
-            }
-        }}
-    }
-    
-    public var systemPrompt: String {
-        get { accessQueue.sync { _systemPrompt } }
-        set { accessQueue.async(flags: .barrier) { [weak self] in
-            self?._systemPrompt = newValue
-            DispatchQueue.main.async {
-                self?.objectWillChange?.send()
-            }
-        }}
-    }
-    
-    public var messages: [Message] {
-        get { accessQueue.sync { _messages } }
-        set { accessQueue.async(flags: .barrier) { [weak self] in
-            guard let self = self else { return }
-            self._messages = newValue
-            
-            // Update last message and timestamp when messages change
-            if let lastMessage = newValue.last {
-                self._lastMessage = lastMessage.content
-                self._timestamp = lastMessage.timestamp
-                
-                // Update unread count if needed
-                if !lastMessage.isFromUser && lastMessage.status != .read {
-                    self._unreadCount += 1
-                }
-            }
-            
-            // Notify observers on the main thread
-            DispatchQueue.main.async {
-                self.objectWillChange?.send()
-            }
-        }}
-    }
-    
-    // MARK: - Initialization
-    
-    /// Creates a new conversation
-    /// - Parameters:
-    ///   - id: The unique identifier for the conversation
-    ///   - title: The title of the conversation
-    ///   - messages: Array of messages
-    ///   - lastModified: When the conversation was last updated
-    ///   - projectId: Optional project ID this conversation belongs to
-    ///   - systemPrompt: The system prompt for this conversation
-    ///   - unreadCount: Number of unread messages
-    public init(
-        id: UUID = UUID(),
-        title: String = "New Conversation",
         messages: [Message] = [],
-        lastModified: Date = Date(),
-        projectId: UUID? = nil,
-        systemPrompt: String = "You are a helpful AI assistant.",
-        unreadCount: Int = 0
+        isPinned: Bool = false
     ) {
         self.id = id
         self._title = title
-        self._lastMessage = messages.last?.content ?? ""
-        self._timestamp = lastModified
+        self._lastMessage = messages.last?.content ?? lastMessage
+        self._timestamp = timestamp
         self._unreadCount = unreadCount
         self._projectId = projectId
         self._systemPrompt = systemPrompt
         self._messages = messages
-        self.objectWillChange = ObservableObjectPublisher()
+        self._isPinned = isPinned
+        self.createdAt = timestamp
+        self.updatedAt = timestamp
         
         // If no title is provided, generate one from the first message
         if title == "New Conversation", let firstMessage = messages.first(where: { !$0.content.isEmpty }) {
@@ -253,41 +98,121 @@ public final class Conversation: ConversationProtocol, Identifiable, ObservableO
         }
     }
     
-    // MARK: - ConversationProtocol Conformance
+    // MARK: - Thread-Safe Property Updates
+    
+    private func updateProperty<T>(_ property: String, newValue: T) {
+        accessQueue.async(flags: .barrier) { [weak self] in
+            guard let self = self else { return }
+            
+            // Use direct property access
+            switch property {
+            case "title":
+                self._title = newValue as! String
+            case "lastMessage":
+                self._lastMessage = newValue as! String
+            case "timestamp":
+                self._timestamp = newValue as! Date
+            case "unreadCount":
+                self._unreadCount = newValue as! Int
+            case "projectId":
+                self._projectId = newValue as? UUID
+            case "systemPrompt":
+                self._systemPrompt = newValue as! String
+            case "messages":
+                self._messages = newValue as! [Message]
+            case "isPinned":
+                self._isPinned = newValue as! Bool
+            default:
+                break
+            }
+            
+            // Update the timestamp
+            if property != "timestamp" {
+                self.updatedAt = Date()
+            }
+            
+            // Notify observers on the main thread
+            Task { @MainActor in
+                self.objectWillChange.send()
+            }
+        }
+    }
+    
+    // MARK: - Message Management
     
     public func addMessage(_ message: Message) {
         accessQueue.async(flags: .barrier) { [weak self] in
             guard let self = self else { return }
             
             // Update messages on the background queue
-            var updatedMessages = self.messages
-            updatedMessages.append(message)
+            self._messages.append(message)
+            self._lastMessage = message.content
+            self._timestamp = message.timestamp
+            self.updatedAt = Date()
             
-            // Update properties on the main thread
-            DispatchQueue.main.async { [weak self] in
-                guard let self = self else { return }
-                
-                self.messages = updatedMessages
-                self.lastMessage = message.content
-                self.timestamp = Date()
-                if !message.isFromUser {
-                    self.unreadCount += 1
-                }
-                
-                // Explicitly notify observers
-                self.objectWillChange?.send()
+            // Update unread count if needed
+            if !message.isFromUser && message.status != .read {
+                self._unreadCount += 1
+            }
+            
+            // Notify observers on the main thread
+            Task { @MainActor in
+                self.objectWillChange.send()
             }
         }
     }
+    
+    // MARK: - Codable
+    
+    private enum CodingKeys: String, CodingKey {
+        case id, title, lastMessage, timestamp, unreadCount, projectId, systemPrompt, messages, isPinned, createdAt, updatedAt
+    }
+    
+    public required init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        
+        // Decode all properties using the same key names as the stored properties
+        id = try container.decode(UUID.self, forKey: .id)
+        _title = try container.decode(String.self, forKey: .title)
+        _lastMessage = try container.decode(String.self, forKey: .lastMessage)
+        _timestamp = try container.decode(Date.self, forKey: .timestamp)
+        _unreadCount = try container.decode(Int.self, forKey: .unreadCount)
+        _projectId = try container.decodeIfPresent(UUID.self, forKey: .projectId)
+        _systemPrompt = try container.decode(String.self, forKey: .systemPrompt)
+        _messages = try container.decode([Message].self, forKey: .messages)
+        _isPinned = try container.decode(Bool.self, forKey: .isPinned)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+    }
+    
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(_title, forKey: .title)
+        try container.encode(_lastMessage, forKey: .lastMessage)
+        try container.encode(_timestamp, forKey: .timestamp)
+        try container.encode(_unreadCount, forKey: .unreadCount)
+        try container.encodeIfPresent(_projectId, forKey: .projectId)
+        try container.encode(_systemPrompt, forKey: .systemPrompt)
+        try container.encode(_messages, forKey: .messages)
+        try container.encode(_isPinned, forKey: .isPinned)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(updatedAt, forKey: .updatedAt)
+    }
+    
+    // MARK: - ConversationProtocol
     
     public func markAsRead() {
         accessQueue.async(flags: .barrier) { [weak self] in
             guard let self = self else { return }
             
             self._unreadCount = 0
+            for i in self._messages.indices where self._messages[i].status != .read {
+                self._messages[i].status = .read
+            }
             
-            DispatchQueue.main.async { [weak self] in
-                self?.objectWillChange?.send()
+            Task { @MainActor in
+                self.objectWillChange.send()
             }
         }
     }
@@ -297,9 +222,10 @@ public final class Conversation: ConversationProtocol, Identifiable, ObservableO
             guard let self = self else { return }
             
             self._title = newTitle
+            self.updatedAt = Date()
             
-            DispatchQueue.main.async { [weak self] in
-                self?.objectWillChange?.send()
+            Task { @MainActor in
+                self.objectWillChange.send()
             }
         }
     }
@@ -309,88 +235,32 @@ public final class Conversation: ConversationProtocol, Identifiable, ObservableO
             guard let self = self else { return }
             
             self._projectId = projectId
+            self.updatedAt = Date()
             
-            DispatchQueue.main.async { [weak self] in
-                self?.objectWillChange?.send()
+            Task { @MainActor in
+                self.objectWillChange.send()
             }
         }
     }
     
-    // MARK: - Codable
-    
-    private enum CodingKeys: String, CodingKey {
-        case id, title, lastMessage, timestamp, unreadCount, projectId, systemPrompt, messages
-    }
-    
-    // Non-isolated initializer for Decodable conformance
-    public required init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        
-        // Decode required properties
-        let id = try container.decode(UUID.self, forKey: .id)
-        let title = try container.decode(String.self, forKey: .title)
-        let lastMessage = try container.decode(String.self, forKey: .lastMessage)
-        let timestamp = try container.decode(Date.self, forKey: .timestamp)
-        let unreadCount = try container.decode(Int.self, forKey: .unreadCount)
-        let projectId = try container.decodeIfPresent(UUID.self, forKey: .projectId)
-        let systemPrompt = try container.decode(String.self, forKey: .systemPrompt)
-        let messages = try container.decode([Message].self, forKey: .messages)
-        
-        // Initialize properties
-        self.id = id
-        self._title = title
-        self._lastMessage = lastMessage
-        self._timestamp = timestamp
-        self._unreadCount = unreadCount
-        self._projectId = projectId
-        self._systemPrompt = systemPrompt
-        self._messages = messages
-        self.objectWillChange = ObservableObjectPublisher()
-        
-        // If no title is provided, generate one from the first message
-        if title == "New Conversation", let firstMessage = messages.first(where: { !$0.content.isEmpty }) {
-            self._title = String(firstMessage.content.prefix(30)) + (firstMessage.content.count > 30 ? "..." : "")
+    public func updateMessage(_ id: UUID, content: String, status: MessageStatus) {
+        accessQueue.async(flags: .barrier) { [weak self] in
+            guard let self = self else { return }
+            
+            if let index = self._messages.firstIndex(where: { $0.id == id }) {
+                self._messages[index].content = content
+                self._messages[index].status = status
+                
+                // Update conversation metadata
+                self._lastMessage = content
+                self._timestamp = Date()
+                self.updatedAt = Date()
+                
+                Task { @MainActor in
+                    self.objectWillChange.send()
+                }
+            }
         }
-    }
-    
-    // Helper struct for decoding
-    private struct Decoded: Decodable {
-        let id: UUID
-        let title: String
-        let lastMessage: String
-        let timestamp: Date
-        let unreadCount: Int
-        let projectId: UUID?
-        let systemPrompt: String
-        let messages: [Message]
-        
-        init(from decoder: Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            id = try container.decode(UUID.self, forKey: .id)
-            title = try container.decode(String.self, forKey: .title)
-            lastMessage = try container.decode(String.self, forKey: .lastMessage)
-            timestamp = try container.decode(Date.self, forKey: .timestamp)
-            unreadCount = try container.decode(Int.self, forKey: .unreadCount)
-            projectId = try container.decodeIfPresent(UUID.self, forKey: .projectId)
-            systemPrompt = try container.decode(String.self, forKey: .systemPrompt)
-            messages = try container.decode([Message].self, forKey: .messages)
-        }
-        
-        enum CodingKeys: String, CodingKey {
-            case id, title, lastMessage, timestamp, unreadCount, projectId, systemPrompt, messages
-        }
-    }
-    
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(id, forKey: .id)
-        try container.encode(title, forKey: .title)
-        try container.encode(lastMessage, forKey: .lastMessage)
-        try container.encode(timestamp, forKey: .timestamp)
-        try container.encode(unreadCount, forKey: .unreadCount)
-        try container.encodeIfPresent(projectId, forKey: .projectId)
-        try container.encode(systemPrompt, forKey: .systemPrompt)
-        try container.encode(messages, forKey: .messages)
     }
 }
 

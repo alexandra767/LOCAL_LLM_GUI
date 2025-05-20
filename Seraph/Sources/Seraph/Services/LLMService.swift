@@ -1,5 +1,5 @@
 import Foundation
-import Combine
+@preconcurrency import Combine
 
 /// Errors that can occur during LLM operations
 public enum LLMError: Error, LocalizedError {
@@ -184,6 +184,9 @@ public final class LLMService: LLMServiceProtocol {
     
     /// The URL session to use for network requests
     private let session: URLSession
+    
+    /// Headers to include in API requests
+    private var requestHeaders: [String: String] = [:]
     
     // Private initializer to enforce singleton pattern
     private init() {
@@ -441,7 +444,7 @@ public final class LLMService: LLMServiceProtocol {
         
         let subject = PassthroughSubject<String, Error>()
         
-        let task = session.dataTask(with: request) { data, response, error in
+        let task = session.dataTask(with: request) { [subject] data, response, error in
             if let error = error {
                 subject.send(completion: .failure(error))
                 return

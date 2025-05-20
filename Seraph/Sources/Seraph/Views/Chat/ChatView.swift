@@ -3,31 +3,7 @@ import Combine
 import Foundation
 import AppKit
 
-// Import Seraph models and protocols
-@_exported import struct Seraph.Message
-@_exported import class Seraph.Conversation
-@_exported import class Seraph.AppState
-@_exported import class Seraph.LLMService
-@_exported import struct Seraph.AIModel
-@_exported import protocol Seraph.LLMServiceProtocol
-@_exported import protocol Seraph.ConversationProtocol
-
 // MARK: - Type Aliases
-
-/// Alias for Message from the Seraph module
-typealias Message = Seraph.Message
-
-/// Alias for Conversation from the Seraph module
-typealias Conversation = Seraph.Conversation
-
-/// Alias for AppState from the Seraph module
-typealias AppState = Seraph.AppState
-
-/// Alias for LLMService from the Seraph module
-typealias LLMService = Seraph.LLMService
-
-/// Alias for AIModel from the Seraph module
-typealias AIModel = Seraph.AIModel
 
 // MARK: - Message Status
 
@@ -77,20 +53,7 @@ struct MessageView: View {
     }
 }
 
-// MARK: - Typing Indicator View
-
-struct TypingIndicatorView: View {
-    var body: some View {
-        HStack {
-            Text("AI is typing...")
-                .foregroundColor(.secondary)
-                .font(.caption)
-            ProgressView()
-                .scaleEffect(0.5)
-        }
-        .padding()
-    }
-}
+// The TypingIndicatorView is now used from Views/Common/TypingIndicatorView.swift
 
 // MARK: - Color Extensions
 
@@ -175,9 +138,15 @@ public struct ChatView: View {
                 }
                 
                 if isProcessing {
-                    TypingIndicatorView()
-                        .listRowInsets(EdgeInsets())
-                        .listRowSeparator(.hidden)
+                    HStack {
+                        Text("AI is typing...")
+                            .foregroundColor(.secondary)
+                            .font(.caption)
+                        TypingIndicatorView()
+                    }
+                    .padding()
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
                 }
             }
             .listStyle(PlainListStyle())
@@ -329,47 +298,6 @@ public struct ChatView: View {
         .frame(width: 500, height: 400)
     }
     
-    }
-    
-    private var messagesView: some View {
-        ScrollViewReader { proxy in
-            List {
-                ForEach(conversation.messages) { message in
-                    MessageView(message: message)
-                        .id(message.id)
-                }
-            }
-            .listStyle(.plain)
-            .onChange(of: conversation.messages) { _ in
-                if let lastMessage = conversation.messages.last {
-                    withAnimation {
-                        proxy.scrollTo(lastMessage.id, anchor: .bottom)
-                    }
-                }
-            }
-        }
-    }
-    
-    private var bottomBar: some View {
-        HStack {
-            TextField("Message", text: $messageText, axis: .vertical)
-                .textFieldStyle(.plain)
-                .padding(8)
-                .background(Color.textBackgroundColor)
-                .cornerRadius(8)
-                .onSubmit(processMessage)
-                .disabled(isProcessing)
-            
-            Button(action: processMessage) {
-                Image(systemName: "paperplane.fill")
-                    .padding(8)
-            }
-            .buttonStyle(.borderless)
-            .disabled(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        }
-        .padding()
-        .background(Color.windowBackgroundColor)
-    }
     
     private func processMessage() {
         guard !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
@@ -432,13 +360,12 @@ public struct ChatView: View {
         }
     }
     
-    private func updateMessage(_ id: UUID, with content: String, status: MessageStatus) {
+    private func updateMessage(_ id: UUID, with content: String, status: Message.Status) {
         if let index = conversation.messages.firstIndex(where: { $0.id == id }) {
             conversation.messages[index].content = content
             conversation.messages[index].status = status
         }
     }
-}
 
 // MARK: - Preview Provider
 

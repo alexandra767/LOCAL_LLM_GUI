@@ -2,30 +2,7 @@ import SwiftUI
 import AppKit
 import Combine
 
-// Import from the Seraph module
-@_exported import struct Seraph.Conversation
-@_exported import class Seraph.Project
-@_exported import class Seraph.AppState
-@_exported import enum Seraph.NavigationDestination
-
 // MARK: - Type Aliases
-
-/// Alias for AppState from the Seraph module
-public typealias AppState = Seraph.AppState
-
-/// Alias for Conversation from the Seraph module
-public typealias Conversation = Seraph.Conversation
-
-/// Alias for Project from the Seraph module
-public typealias Project = Seraph.Project
-
-/// Alias for NavigationDestination from the Seraph module
-public typealias NavigationDestination = Seraph.NavigationDestination
-extension Color {
-    static let sidebarBackground = Color(NSColor.controlBackgroundColor)
-    static let sidebarText = Color(NSColor.textColor)
-}
-
 // MARK: - Navigation Types
 
 /// Represents a navigation item in the sidebar
@@ -317,16 +294,19 @@ private struct NewProjectView: View {
 // MARK: - Previews
 
 #Preview(traits: .fixedLayout(width: 250, height: 600)) {
-    let appState = AppState()
+    // Create a mock AppState for preview
+    let appState = AppState.shared
     
-    // Add sample data for preview
+    // Add sample data for preview using the public API
     let conversation1 = Conversation(title: "Sample Chat 1")
     let conversation2 = Conversation(title: "Sample Chat 2")
+    appState.addConversation(conversation1)
+    appState.addConversation(conversation2)
+    
     let project1 = Project(name: "Project 1")
     let project2 = Project(name: "Project 2")
-    
-    appState.conversations = [conversation1, conversation2]
-    appState.projects = [project1, project2]
+    appState.addProject(project1)
+    appState.addProject(project2)
     
     return SidebarView(
         selection: .constant(.chat(id: conversation1.id)),

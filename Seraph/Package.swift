@@ -30,9 +30,6 @@ let package = Package(
             dependencies: [
                 .product(name: "CombineExt", package: "CombineExt")
             ],
-            resources: [
-                .process("Resources")
-            ],
             swiftSettings: [
                 .define("DEBUG", .when(configuration: .debug)),
                 .define("RELEASE", .when(configuration: .release)),
@@ -46,12 +43,6 @@ let package = Package(
             name: "SeraphApp",
             dependencies: ["Seraph"],
             path: "Sources/SeraphApp",
-            exclude: [
-                "Info.plist"
-            ],
-            resources: [
-                .process("Resources")
-            ],
             swiftSettings: [
                 .define("DEBUG", .when(configuration: .debug)),
                 .define("RELEASE", .when(configuration: .release))

@@ -5,7 +5,7 @@ import Combine
 /// Represents a project in the app
 @preconcurrency
 public final class Project: Identifiable, ObservableObject, Codable, @unchecked Sendable {
-    @MainActor public var objectWillChange: ObservableObjectPublisher? = nil
+    public let objectWillChange = ObservableObjectPublisher()
     
     private let accessQueue = DispatchQueue(label: "com.seraph.project", attributes: .concurrent)
     public let id: UUID
@@ -14,8 +14,8 @@ public final class Project: Identifiable, ObservableObject, Codable, @unchecked 
         set { accessQueue.async(flags: .barrier) { [weak self] in
             self?._name = newValue
             self?.updateLastModified()
-            DispatchQueue.main.async {
-                self?.objectWillChange?.send()
+            DispatchQueue.main.async { [weak self] in
+                self?.objectWillChange.send()
             }
         }}
     }
@@ -24,8 +24,8 @@ public final class Project: Identifiable, ObservableObject, Codable, @unchecked 
         set { accessQueue.async(flags: .barrier) { [weak self] in
             self?._description = newValue
             self?.updateLastModified()
-            DispatchQueue.main.async {
-                self?.objectWillChange?.send()
+            DispatchQueue.main.async { [weak self] in
+                self?.objectWillChange.send()
             }
         }}
     }
@@ -41,7 +41,7 @@ public final class Project: Identifiable, ObservableObject, Codable, @unchecked 
             guard let self = self else { return }
             self.lastUpdated = Date()
             DispatchQueue.main.async { [weak self] in
-                self?.objectWillChange?.send()
+                self?.objectWillChange.send()
             }
         }
     }
@@ -60,9 +60,6 @@ public final class Project: Identifiable, ObservableObject, Codable, @unchecked 
         self._description = description
         self.lastUpdated = lastUpdated
         self.createdAt = createdAt
-        
-        // Initialize the publisher
-        self.objectWillChange = ObservableObjectPublisher()
     }
     
     // MARK: - Codable
@@ -74,14 +71,17 @@ public final class Project: Identifiable, ObservableObject, Codable, @unchecked 
     public required init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(UUID.self, forKey: .id)
-        name = try container.decode(String.self, forKey: .name)
-        description = try container.decode(String.self, forKey: .description)
+        
+        _name = try container.decode(String.self, forKey: .name)
+        _description = try container.decode(String.self, forKey: .description)
+        
         // For backward compatibility, check both lastUpdated and updatedAt
         if let updatedAt = try? container.decodeIfPresent(Date.self, forKey: .updatedAt) {
             lastUpdated = updatedAt
         } else {
             lastUpdated = try container.decode(Date.self, forKey: .lastUpdated)
         }
+        
         createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? lastUpdated
     }
     

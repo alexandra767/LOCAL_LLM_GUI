@@ -63,8 +63,11 @@ struct ConversationRow_Previews: PreviewProvider {
         let conversation = Conversation(
             title: "Project Discussion",
             lastMessage: "Let's discuss the project requirements",
+            timestamp: Date(),
             unreadCount: 2,
-            projectId: UUID()
+            projectId: UUID(),
+            systemPrompt: "",
+            messages: []
         )
         
         return List {
@@ -74,7 +77,9 @@ struct ConversationRow_Previews: PreviewProvider {
                 lastMessage: "This is a longer message that should be truncated in the UI to prevent it from taking up too much space",
                 timestamp: Date().addingTimeInterval(-3600),
                 unreadCount: 0,
-                projectId: UUID()
+                projectId: UUID(),
+                systemPrompt: "",
+                messages: []
             ))
         }
         .listStyle(.plain)
