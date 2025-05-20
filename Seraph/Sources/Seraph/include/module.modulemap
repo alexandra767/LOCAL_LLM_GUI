@@ -1,0 +1,11 @@
+framework module Seraph {
+    umbrella header "Seraph-Swift.h"
+    
+    export *
+    module * { export * }
+    
+    // Explicitly link against Foundation and Combine
+    link "Foundation"
+    link "Combine"
+    link "SwiftUI"
+}
