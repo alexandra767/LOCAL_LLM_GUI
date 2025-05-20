@@ -1,154 +1,336 @@
 import SwiftUI
 import AppKit
+import Combine
 
-/// A view that displays the sidebar navigation for the app.
-/// This includes chat history and project organization.
+// Import from the Seraph module
+@_exported import struct Seraph.Conversation
+@_exported import class Seraph.Project
+@_exported import class Seraph.AppState
+@_exported import enum Seraph.NavigationDestination
+
+// MARK: - Type Aliases
+
+/// Alias for AppState from the Seraph module
+public typealias AppState = Seraph.AppState
+
+/// Alias for Conversation from the Seraph module
+public typealias Conversation = Seraph.Conversation
+
+/// Alias for Project from the Seraph module
+public typealias Project = Seraph.Project
+
+/// Alias for NavigationDestination from the Seraph module
+public typealias NavigationDestination = Seraph.NavigationDestination
+extension Color {
+    static let sidebarBackground = Color(NSColor.controlBackgroundColor)
+    static let sidebarText = Color(NSColor.textColor)
+}
+
+// MARK: - Navigation Types
+
+/// Represents a navigation item in the sidebar
+public struct NavigationItem: View, Identifiable {
+    public let id = UUID()
+    let title: String
+    let icon: String
+    let destination: SidebarNavigationDestination
+    
+    public var body: some View {
+        Label(title, systemImage: icon)
+    }
+    
+    public init(title: String, icon: String, destination: SidebarNavigationDestination) {
+        self.title = title
+        self.icon = icon
+        self.destination = destination
+    }
+}
+
+/// Represents the navigation destination in the sidebar
+public enum SidebarNavigationDestination: Hashable {
+    case chat(id: UUID)
+    case project(id: UUID)
+    case settings
+    
+    public static func == (lhs: SidebarNavigationDestination, rhs: SidebarNavigationDestination) -> Bool {
+        switch (lhs, rhs) {
+        case (.chat(let lhsId), .chat(let rhsId)):
+            return lhsId == rhsId
+        case (.project(let lhsId), .project(let rhsId)):
+            return lhsId == rhsId
+        case (.settings, .settings):
+            return true
+        default:
+            return false
+        }
+    }
+    
+    public func hash(into hasher: inout Hasher) {
+        switch self {
+        case .chat(let id):
+            hasher.combine("chat")
+            hasher.combine(id)
+        case .project(let id):
+            hasher.combine("project")
+            hasher.combine(id)
+        case .settings:
+            hasher.combine("settings")
+        }
+    }
+}
+
+extension Color {
+    static let sidebarBackground = Color(NSColor.controlBackgroundColor)
+    static let sidebarText = Color(NSColor.textColor)
+}
+
+// MARK: - AppState Extension
+
+private extension AppState {
+    var recentChats: [Conversation] {
+        conversations
+            .sorted(by: { $0.timestamp > $1.timestamp })
+            .prefix(5)
+            .map { $0 }
+    }
+    
+    var recentProjects: [Project] {
+        projects
+            .sorted(by: { $0.lastUpdated > $1.lastUpdated })
+            .prefix(5)
+            .map { $0 }
+    }
+}
+
+// MARK: - String Extension
+
+extension String {
+    func prefix(_ maxLength: Int) -> String {
+        String(prefix(Swift.min(maxLength, count)))
+    }
+}
+
+// MARK: - Sidebar View
 
 /// A view that displays the sidebar navigation for the app.
 public struct SidebarView: View {
+    // MARK: - Properties
+    
+    /// The currently selected navigation destination
     @Binding public var selection: NavigationDestination?
-    @Binding public var selectedConversationId: UUID?
-    @Binding public var selectedProjectId: UUID?
     
-    @EnvironmentObject private var appState: AppState
+    /// The app state that contains the data for the view
+    @ObservedObject private var appState: AppState
+    
     @State private var isShowingNewProjectSheet = false
-    @State private var newProjectName = ""
     
-    public init(selection: Binding<NavigationDestination?>,
-                selectedConversationId: Binding<UUID?>,
-                selectedProjectId: Binding<UUID?>) {
+    // MARK: - Initialization
+    
+    /// Creates a new sidebar view with the specified selection and app state.
+    public init(selection: Binding<NavigationDestination?>, appState: AppState = .shared) {
         self._selection = selection
-        self._selectedConversationId = selectedConversationId
-        self._selectedProjectId = selectedProjectId
+        self.appState = appState
     }
+    
+    // MARK: - Private Properties
+    
+    private var recentChats: [Conversation] {
+        appState.conversations
+            .filter { $0.projectId == nil }
+            .sorted { $0.timestamp > $1.timestamp }
+            .prefix(5)
+            .map { $0 }
+    }
+    
+    private var recentProjects: [Project] {
+        appState.projects
+            .sorted { $0.lastUpdated > $1.lastUpdated }
+            .prefix(5)
+            .map { $0 }
+    }
+    
+    // MARK: - Private Methods
+    
+    private func createNewConversation() {
+        let conversation = Conversation(title: "New Chat")
+        appState.conversations.append(conversation)
+        selection = .chat(id: conversation.id)
+    }
+    
+    private func createProject(name: String) {
+        let project = Project(name: name)
+        appState.projects.append(project)
+        selection = .project(id: project.id)
+    }
+    
+    private func deleteConversation(_ conversation: Conversation) {
+        Task { @MainActor in
+            if let index = appState.conversations.firstIndex(where: { $0.id == conversation.id }) {
+                appState.conversations.remove(at: index)
+                
+                // Clear selection if the deleted conversation was selected
+                if case .chat(let id) = selection, id == conversation.id {
+                    selection = nil
+                }
+            }
+        }
+    }
+    
+    private func deleteProject(_ project: Project) {
+        Task { @MainActor in
+            if let index = appState.projects.firstIndex(where: { $0.id == project.id }) {
+                appState.projects.remove(at: index)
+                
+                // Clear selection if the deleted project was selected
+                if case .project(let id) = selection, id == project.id {
+                    selection = nil
+                }
+            }
+        }
+    }
+    
+    private func toggleSidebar() {
+        NSApp.keyWindow?.firstResponder?.tryToPerform(
+            #selector(NSSplitViewController.toggleSidebar(_:)),
+            with: nil
+        )
+    }
+    
+    // MARK: - Body
     
     public var body: some View {
         List(selection: $selection) {
-            Section("Chats") {
-                ForEach(appState.recentChats) { conversation in
+            // Chats Section
+            Section(header: Text("Recent Chats")) {
+                ForEach(recentChats) { conversation in
                     NavigationLink(value: NavigationDestination.chat(id: conversation.id)) {
-                        Label(conversation.title, systemImage: "bubble.left")
-                            .lineLimit(1)
-                            .badge(conversation.unreadCount > 0 ? "\(conversation.unreadCount)" : nil)
+                        Label(conversation.title, systemImage: "bubble.left.fill")
                     }
                     .tag(NavigationDestination.chat(id: conversation.id))
                     .contextMenu {
                         Button(role: .destructive) {
-                            appState.deleteConversation(withId: conversation.id)
+                            deleteConversation(conversation)
                         } label: {
                             Label("Delete", systemImage: "trash")
                         }
                     }
                 }
                 
-                Button(action: {
-                    Task { 
-                        appState.createNewConversation()
-                    }
-                }) {
+                Button(action: createNewConversation) {
                     Label("New Chat", systemImage: "plus.circle")
                 }
                 .buttonStyle(.plain)
                 .foregroundColor(.accentColor)
             }
             
-            Section("Projects") {
-                ForEach(appState.projects) { project in
+            // Projects Section
+            Section(header: Text("Projects")) {
+                ForEach(recentProjects) { project in
                     NavigationLink(value: NavigationDestination.project(id: project.id)) {
-                        Label(project.name, systemImage: "folder")
-                            .lineLimit(1)
+                        Label(project.name, systemImage: "folder.fill")
                     }
                     .tag(NavigationDestination.project(id: project.id))
+                    .contextMenu {
+                        Button(role: .destructive) {
+                            deleteProject(project)
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
                 }
                 
-                Button(action: {
-                    isShowingNewProjectSheet = true
-                }) {
+                Button(action: { isShowingNewProjectSheet = true }) {
                     Label("New Project", systemImage: "plus.circle")
                 }
                 .buttonStyle(.plain)
                 .foregroundColor(.accentColor)
             }
+            
+            // Settings Section
+            Section {
+                NavigationLink(value: NavigationDestination.settings) {
+                    Label("Settings", systemImage: "gear")
+                }
+                .tag(NavigationDestination.settings)
+            }
         }
-        .listStyle(.sidebar)
+        .listStyle(SidebarListStyle())
         .frame(minWidth: 200, idealWidth: 250, maxWidth: 300)
         .toolbar {
-            ToolbarItem(placement: .automatic) {
+            ToolbarItem(placement: .primaryAction) {
                 Button(action: toggleSidebar) {
-                    Image(systemName: "sidebar.left")
+                    Label("Toggle Sidebar", systemImage: "sidebar.left")
                 }
             }
         }
         .sheet(isPresented: $isShowingNewProjectSheet) {
-            newProjectSheet
-        }
-        .onChange(of: selection) { newValue in
-            if case let .chat(id) = newValue {
-                selectedConversationId = id
-                selectedProjectId = nil
-            } else if case let .project(id) = newValue {
-                selectedProjectId = id
-                selectedConversationId = nil
+            NewProjectView(isPresented: $isShowingNewProjectSheet) { name in
+                createProject(name: name)
             }
         }
         .onAppear {
             // Select the first conversation by default if none is selected
-            if selection == nil, let firstConversation = appState.recentChats.first {
+            if selection == nil, let firstConversation = recentChats.first {
                 selection = .chat(id: firstConversation.id)
             }
         }
     }
+}
+
+// MARK: - New Project View
+
+private struct NewProjectView: View {
+    @Binding var isPresented: Bool
+    let onCreate: (String) -> Void
+    @State private var projectName: String = ""
     
-    private var newProjectSheet: some View {
-        NavigationView {
-            Form {
-                TextField("Project Name", text: $newProjectName)
-                    .textFieldStyle(.roundedBorder)
-            }
-            .navigationTitle("New Project")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        isShowingNewProjectSheet = false
-                        newProjectName = ""
+    var body: some View {
+        VStack(spacing: 16) {
+            Text("New Project")
+                .font(.headline)
+            
+            TextField("Project Name", text: $projectName)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .padding()
+            
+            HStack {
+                Button("Cancel") {
+                    isPresented = false
+                }
+                .keyboardShortcut(.cancelAction)
+                
+                Button("Create") {
+                    if !projectName.isEmpty {
+                        onCreate(projectName)
+                        isPresented = false
                     }
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Create") {
-                        Task { 
-                            appState.createProject(title: newProjectName)
-                            isShowingNewProjectSheet = false
-                            newProjectName = ""
-                        }
-                    }
-                    .disabled(newProjectName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(projectName.isEmpty)
             }
-            .frame(width: 400, height: 200)
         }
-    }
-    
-    private func toggleSidebar() {
-        #if os(macOS)
-        NSApp.keyWindow?.firstResponder?.tryToPerform(#selector(NSSplitViewController.toggleSidebar(_:)), with: nil)
-        #endif
+        .padding()
+        .frame(width: 300)
     }
 }
 
 // MARK: - Previews
 
-struct SidebarView_Previews: PreviewProvider {
-    static var previews: some View {
-        let appState = AppState.preview
-        
-        // For preview we use the preview state that already has data
-        
-        return SidebarView(
-            selection: .constant(nil),
-            selectedConversationId: .constant(nil),
-            selectedProjectId: .constant(nil)
-        )
-        .environmentObject(appState)
-        .frame(width: 250)
-    }
+#Preview(traits: .fixedLayout(width: 250, height: 600)) {
+    let appState = AppState()
+    
+    // Add sample data for preview
+    let conversation1 = Conversation(title: "Sample Chat 1")
+    let conversation2 = Conversation(title: "Sample Chat 2")
+    let project1 = Project(name: "Project 1")
+    let project2 = Project(name: "Project 2")
+    
+    appState.conversations = [conversation1, conversation2]
+    appState.projects = [project1, project2]
+    
+    return SidebarView(
+        selection: .constant(.chat(id: conversation1.id)),
+        appState: appState
+    )
+    .frame(width: 250)
 }

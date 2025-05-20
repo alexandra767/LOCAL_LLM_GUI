@@ -75,6 +75,7 @@ public enum LLMError: Error, LocalizedError {
 typealias CompletionHandler = (Result<String, Error>) -> Void
 
 /// Protocol defining the interface for LLM services
+@MainActor
 public protocol LLMServiceProtocol: AnyObject {
     /// The base URL for the LLM API
     var baseURL: URL? { get set }
@@ -82,8 +83,8 @@ public protocol LLMServiceProtocol: AnyObject {
     /// The API key for the LLM service
     var apiKey: String? { get set }
     
-    /// The default model to use
-    var defaultModel: AIModel { get set }
+    /// The default model ID to use
+    var defaultModelId: String { get set }
     
     /// The maximum number of tokens to generate
     var maxTokens: Int { get set }
@@ -157,145 +158,206 @@ public protocol LLMServiceProtocol: AnyObject {
         conversationHistory: [Message],
         completion: @escaping (Result<String, Error>) -> Void
     )
+    
+    /// Send a message to the LLM and get a response
+    /// - Parameters:
+    ///   - message: The message to send
+    ///   - conversation: The conversation to add the message to
+    ///   - systemPrompt: The system prompt to use
+    ///   - model: The AI model to use
+    /// - Returns: The generated response as a string
+    func sendMessage(
+        _ message: String,
+        conversation: Conversation,
+        systemPrompt: String,
+        model: AIModel
+    ) async throws -> String
 }
 
 /// A service that handles communication with language models
+@MainActor
 public final class LLMService: LLMServiceProtocol {
     // MARK: - Properties
     
     /// Shared instance of the LLMService
     public static let shared = LLMService()
     
-    // MARK: - Properties
-    
-    /// The base URL for the LLM API
-    public var baseURL: URL?
-    
-    /// The API key for the LLM service
-    public var apiKey: String? {
-        didSet {
-            if let key = apiKey, !key.isEmpty {
-                _ = KeychainHelper.shared.saveAPIKey(key)
-            } else {
-                _ = KeychainHelper.shared.deleteAPIKey()
-            }
-        }
-    }
-    
-    /// The default model to use
-    public var defaultModel: AIModel = .gpt3_5
-    
-    /// The maximum number of tokens to generate
-    public var maxTokens: Int = 2048
-    
-    /// The temperature for sampling (0.0 to 1.0)
-    public var temperature: Double = 0.7
-    
-    /// The top-p value for nucleus sampling (0.0 to 1.0)
-    public var topP: Double = 0.9
-    
-    /// The presence penalty (-2.0 to 2.0)
-    public var presencePenalty: Double = 0.0
-    
-    /// The frequency penalty (-2.0 to 2.0)
-    public var frequencyPenalty: Double = 0.0
-    
-    /// The URLSession to use for network requests
+    /// The URL session to use for network requests
     private let session: URLSession
     
-    /// The JSON encoder to use
-    private let encoder = JSONEncoder()
-    
-    /// The JSON decoder to use
-    private let decoder = JSONDecoder()
-    
-    /// For managing Combine subscriptions
-    private var cancellables = Set<AnyCancellable>()
-    
-    /// Cancels all ongoing requests
-    public func cancelAllRequests() {
-        cancellables.removeAll()
-        tasks.forEach { $0.cancel() }
-        tasks.removeAll()
+    // Private initializer to enforce singleton pattern
+    private init() {
+        self.session = URLSession.shared
+        
+        // Configure default headers if needed
+        var headers = self.requestHeaders
+        headers["Content-Type"] = "application/json"
+        self.requestHeaders = headers
     }
     
     /// The active tasks
     private var tasks: [URLSessionTask] = []
     
+    /// The base URL for the LLM API
+    public var baseURL: URL? {
+        get {
+            guard let urlString = UserDefaults.standard.string(forKey: "llmBaseURL") else {
+                return nil
+            }
+            return URL(string: urlString)
+        }
+        set {
+            UserDefaults.standard.set(newValue?.absoluteString, forKey: "llmBaseURL")
+        }
+    }
+    
+    /// The API key for the LLM service
+    public var apiKey: String? {
+        get { UserDefaults.standard.string(forKey: "llmAPIKey") }
+        set { UserDefaults.standard.set(newValue, forKey: "llmAPIKey") }
+    }
+    
+    /// The default model ID to use
+    public var defaultModelId: String {
+        get {
+            if let modelId = UserDefaults.standard.string(forKey: "defaultModelId") {
+                return modelId
+            }
+            return AIModel.defaultModel.id
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: "defaultModelId")
+        }
+    }
+    
+    /// The default model to use
+    public var defaultModel: AIModel {
+        AIModel.allModels.first { $0.id == defaultModelId } ?? AIModel.defaultModel
+    }
+    
+    /// The maximum number of tokens to generate
+    public var maxTokens: Int = 2048 {
+        didSet {
+            UserDefaults.standard.set(maxTokens, forKey: "maxTokens")
+        }
+    }
+    
+    /// The temperature for sampling (0.0 to 1.0)
+    public var temperature: Double = 0.7 {
+        didSet {
+            UserDefaults.standard.set(temperature, forKey: "temperature")
+        }
+    }
+    
+    /// The top-p value for nucleus sampling (0.0 to 1.0)
+    public var topP: Double = 0.9 {
+        didSet {
+            UserDefaults.standard.set(topP, forKey: "topP")
+        }
+    }
+    
+    /// The presence penalty (-2.0 to 2.0)
+    public var presencePenalty: Double = 0.0 {
+        didSet {
+            UserDefaults.standard.set(presencePenalty, forKey: "presencePenalty")
+        }
+    }
+    
+    /// The frequency penalty (-2.0 to 2.0)
+    public var frequencyPenalty: Double = 0.0 {
+        didSet {
+            UserDefaults.standard.set(frequencyPenalty, forKey: "frequencyPenalty")
+        }
+    }
+    
+    /// The JSON decoder to use
+    private let decoder = JSONDecoder()
+    
+    /// The queue for processing responses
+    private let responseQueue = DispatchQueue(label: "com.seraph.llmservice.response")
+    
+    /// The cancellables for the service
+    private var cancellables = Set<AnyCancellable>()
+    
     // MARK: - Initialization
     
-    public init(session: URLSession = .shared) {
+    /// Private initializer for creating custom instances (for testing)
+    private init(session: URLSession = .shared) {
         self.session = session
         
-        // Configure default base URL
         #if DEBUG
-        self.baseURL = URL(string: "http://localhost:11434")
-        #else
-        self.baseURL = URL(string: "https://api.openai.com/v1")
+        // Print the documents directory for debugging
+        print("Documents Directory: \(FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.path ?? "Not found")")
         #endif
-        
-        // Load saved settings
-        if let savedAPIKey = KeychainHelper.shared.retrieveAPIKey() {
-            self.apiKey = savedAPIKey
-        }
-        
-        // Load other settings from UserDefaults if needed
-        if let savedModel = UserDefaults.standard.string(forKey: "defaultModel"),
-           let model = AIModel(rawValue: savedModel) {
-            self.defaultModel = model
-        }
-        
-        self.temperature = UserDefaults.standard.double(forKey: "temperature")
-        self.maxTokens = UserDefaults.standard.integer(forKey: "maxTokens")
-        self.topP = UserDefaults.standard.double(forKey: "topP")
-        self.presencePenalty = UserDefaults.standard.double(forKey: "presencePenalty")
-        self.frequencyPenalty = UserDefaults.standard.double(forKey: "frequencyPenalty")
     }
     
     // MARK: - Public Methods
     
-    // MARK: - LLMServiceProtocol Conformance
+    // MARK: - LLMServiceProtocol Implementation
     
-    public func generateResponse(
-        prompt: String,
-        model: String,
-        conversationHistory: [Message],
-        completion: @escaping (Result<String, Error>) -> Void
-    ) {
-        // Convert model string to AIModel, defaulting to the service's default model
-        let aiModel = AIModel(rawValue: model) ?? defaultModel
+    @MainActor
+    private func generateResponse(
+        message: String,
+        conversation: Conversation,
+        systemPrompt: String,
+        model: AIModel
+    ) -> AnyPublisher<String, Error> {
+        // Access messages on the main actor
+        let history = conversation.messages.map { message in
+            Message(
+                id: message.id,
+                content: message.content,
+                timestamp: message.timestamp,
+                isFromUser: message.isFromUser
+            )
+        }
         
-        if aiModel.requiresAPIKey {
-            // For cloud models
-            generateRemoteResponse(
-                message: prompt,
-                model: aiModel,
-                systemPrompt: "",
-                history: conversationHistory
+        // Use the existing generateResponse method that takes a model and history
+        return generateResponse(
+            message: message,
+            model: model,
+            systemPrompt: systemPrompt,
+            history: history
+        )
+    }
+    
+    @MainActor
+    public func sendMessage(
+        _ message: String,
+        conversation: Conversation,
+        systemPrompt: String,
+        model: AIModel
+    ) async throws -> String {
+        // Create a copy of the messages to avoid capturing the conversation
+        let messages = conversation.messages
+        let history = messages.map { message in
+            Message(
+                id: message.id,
+                content: message.content,
+                timestamp: message.timestamp,
+                isFromUser: message.isFromUser
             )
-            .sink(receiveCompletion: { result in
-                if case .failure(let error) = result {
-                    completion(.failure(error))
-                }
-            }, receiveValue: { response in
-                completion(.success(response))
-            })
-            .store(in: &cancellables)
-        } else {
-            // For local models
-            generateLocalResponse(
-                message: prompt,
-                model: aiModel,
-                systemPrompt: "",
-                history: conversationHistory
+        }
+        
+        // Use the existing generateResponse method that takes a model and history
+        return try await withCheckedThrowingContinuation { continuation in
+            generateResponse(
+                message: message,
+                model: model,
+                systemPrompt: systemPrompt,
+                history: history
             )
-            .sink(receiveCompletion: { result in
-                if case .failure(let error) = result {
-                    completion(.failure(error))
+            .receive(on: DispatchQueue.main) // Ensure we receive the response on the main thread
+            .sink(
+                receiveCompletion: { completion in
+                    if case let .failure(error) = completion {
+                        continuation.resume(throwing: error)
+                    }
+                },
+                receiveValue: { response in
+                    continuation.resume(returning: response)
                 }
-            }, receiveValue: { response in
-                completion(.success(response))
-            })
+            )
             .store(in: &cancellables)
         }
     }
@@ -323,89 +385,127 @@ public final class LLMService: LLMServiceProtocol {
         }
     }
     
+    public func generateResponse(
+        prompt: String,
+        model: String,
+        conversationHistory: [Message],
+        completion: @escaping (Result<String, Error>) -> Void
+    ) {
+        let aiModel = AIModel.allModels.first { $0.id == model } ?? defaultModel
+        generateResponse(
+            message: prompt,
+            model: aiModel,
+            systemPrompt: "",
+            history: conversationHistory
+        )
+        .sink(receiveCompletion: { result in
+            if case .failure(let error) = result {
+                completion(.failure(error))
+            }
+        }, receiveValue: { response in
+            completion(.success(response))
+        })
+        .store(in: &cancellables)
+    }
+    
     public func streamMessage(
         _ message: String,
-        model: AIModel = .gpt3_5,
-        systemPrompt: String = "You are a helpful AI assistant.",
-        temperature: Double = 0.7
+        model: AIModel,
+        systemPrompt: String,
+        temperature: Double
     ) -> AnyPublisher<String, Error> {
-        // Implementation for streaming responses
-        // This is a simplified implementation - you'll need to adapt it to your specific API
-        
         guard let baseURL = baseURL, let apiKey = apiKey, !apiKey.isEmpty else {
             return Fail(error: LLMError.invalidAPIKey).eraseToAnyPublisher()
         }
         
-        // Create a URL request
-        let endpoint = "/v1/chat/completions"
-        let url = baseURL.appendingPathComponent(endpoint)
-        
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: baseURL.appendingPathComponent("v1/chat/completions"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         
-        // Create the request body
-        let messages: [[String: Any]] = [
-            ["role": "system", "content": systemPrompt],
-            ["role": "user", "content": message]
-        ]
-        
-        let parameters: [String: Any] = [
-            "model": model,
-            "messages": messages,
+        let requestBody: [String: Any] = [
+            "model": model.id,
+            "messages": [
+                ["role": "system", "content": systemPrompt],
+                ["role": "user", "content": message]
+            ],
             "temperature": temperature,
             "stream": true
         ]
         
         do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: parameters, options: [])
+            request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
         } catch {
-            return Fail(error: LLMError.invalidRequest).eraseToAnyPublisher()
+            return Fail(error: error).eraseToAnyPublisher()
         }
         
-        // Create a URLSession data task publisher
-        return URLSession.shared.dataTaskPublisher(for: request)
-            .tryMap { data, response -> String in
-                guard let httpResponse = response as? HTTPURLResponse else {
-                    throw LLMError.invalidResponse
-                }
-                
-                guard 200...299 ~= httpResponse.statusCode else {
-                    if let jsonObject = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                        throw NSError(domain: "", code: httpResponse.statusCode, userInfo: jsonObject)
-                    } else {
-                        throw LLMError.invalidResponse
-                    }
-                }
-                
-                // In a real implementation, you would handle the streaming response here
-                // This is a simplified version that just returns the full response as a string
-                return String(data: data, encoding: .utf8) ?? ""
+        let subject = PassthroughSubject<String, Error>()
+        
+        let task = session.dataTask(with: request) { data, response, error in
+            if let error = error {
+                subject.send(completion: .failure(error))
+                return
             }
-            .eraseToAnyPublisher()
+            
+            guard let httpResponse = response as? HTTPURLResponse else {
+                subject.send(completion: .failure(LLMError.invalidResponse))
+                return
+            }
+            
+            guard (200...299).contains(httpResponse.statusCode) else {
+                let errorMessage = "Request failed with status code: \(httpResponse.statusCode)"
+                let error = NSError(
+                    domain: "",
+                    code: httpResponse.statusCode,
+                    userInfo: [NSLocalizedDescriptionKey: errorMessage]
+                )
+                subject.send(completion: .failure(LLMError.requestFailed(error)))
+                return
+            }
+            
+            guard let data = data else {
+                subject.send(completion: .failure(LLMError.noDataReceived))
+                return
+            }
+            
+            if let responseString = String(data: data, encoding: .utf8) {
+                subject.send(responseString)
+                subject.send(completion: .finished)
+            } else {
+                subject.send(completion: .failure(LLMError.invalidResponse))
+            }
+        }
+        
+        tasks.append(task)
+        task.resume()
+        
+        return subject.eraseToAnyPublisher()
     }
     
     public func isModelAvailable(_ model: AIModel) -> Bool {
-        // For local models, check if they're installed
-        if !model.requiresAPIKey {
-            // TODO: Implement local model availability check
-            return true
+        if !model.requiresAPIKey, case let .localModel(_, path, _, _) = model {
+            return FileManager.default.fileExists(atPath: path)
         }
-        
-        // For remote models, just check if we have an API key
-        return !(apiKey?.isEmpty ?? true)
+        return true
     }
     
     public func availableModels() -> [AIModel] {
-        return AIModel.allCases
+        return AIModel.allModels.filter { model in
+            if model.requiresAPIKey {
+                return true
+            } else {
+                return isModelAvailable(model)
+            }
+        }
     }
     
-    // This method is already implemented above
+    public func cancelAllRequests() {
+        tasks.forEach { $0.cancel() }
+        tasks.removeAll()
+    }
     
     public func validateAPIKey(_ apiKey: String) -> Bool {
-        // Simple validation - in a real app, you might want to make a test API call
-        return !apiKey.isEmpty && apiKey.count > 10
+        return !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
     
     // MARK: - Private Methods
@@ -423,62 +523,50 @@ public final class LLMService: LLMServiceProtocol {
             return Fail(error: LLMError.invalidURL).eraseToAnyPublisher()
         }
         
-        // Prepare the request body for local models (using Ollama API format)
-        var requestBody: [String: Any] = [
-            "model": model.rawValue,
-            "prompt": message,
-            "stream": false
-        ]
-        
-        // Add options if any are set
-        var options: [String: Any] = [:]
-        if temperature > 0 { options["temperature"] = temperature }
-        if maxTokens > 0 { options["max_tokens"] = maxTokens }
-        if topP > 0 { options["top_p"] = topP }
-        if presencePenalty != 0 { options["presence_penalty"] = presencePenalty }
-        if frequencyPenalty != 0 { options["frequency_penalty"] = frequencyPenalty }
-        
-        if !options.isEmpty {
-            requestBody["options"] = options
-        }
-        
-        // Create the request
-        var request = URLRequest(url: baseURL.appendingPathComponent("/api/generate"))
+        var request = URLRequest(url: baseURL.appendingPathComponent("api/generate"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
+        // Prepare the request body for the local model
+        let requestBody: [String: Any] = [
+            "model": model.id,
+            "prompt": message,
+            "system": systemPrompt,
+            "stream": false,
+            "options": [
+                "temperature": temperature,
+                "top_p": topP,
+                "num_predict": maxTokens,
+                "repeat_penalty": 1.1,
+                "stop": ["\n###", "\n\nUser:", "\n\n###"]
+            ]
+        ]
+        
         do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: requestBody, options: [])
-            
-            // Make the request
-            return session.dataTaskPublisher(for: request)
-                .mapError { LLMError.requestFailed($0) }
-                .tryMap { data, response -> String in
-                    guard let httpResponse = response as? HTTPURLResponse else {
-                        throw LLMError.invalidResponse
-                    }
-                    
-                    guard 200...299 ~= httpResponse.statusCode else {
-                        let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
-                        throw LLMError.requestFailed(NSError(
-                            domain: "",
-                            code: httpResponse.statusCode,
-                            userInfo: [NSLocalizedDescriptionKey: errorMessage]
-                        ))
-                    }
-                    
-                    // Parse the response - adjust this based on your local model's response format
-                    if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let responseText = json["response"] as? String {
-                        return responseText
-                    } else {
-                        throw LLMError.invalidResponse
-                    }
-                }
-                .eraseToAnyPublisher()
+            request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
         } catch {
             return Fail(error: error).eraseToAnyPublisher()
         }
+        
+        return session.dataTaskPublisher(for: request)
+            .tryMap { data, response -> String in
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    throw LLMError.invalidResponse
+                }
+                
+                guard (200...299).contains(httpResponse.statusCode) else {
+                    throw LLMError.requestFailed(NSError(domain: "", code: httpResponse.statusCode, userInfo: nil))
+                }
+                
+                guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let responseText = json["response"] as? String else {
+                    throw LLMError.decodingError(NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to decode response"]))
+                }
+                
+                return responseText
+            }
+            .receive(on: DispatchQueue.main)
+            .eraseToAnyPublisher()
     }
     
     private func generateRemoteResponse(
@@ -488,14 +576,18 @@ public final class LLMService: LLMServiceProtocol {
         history: [Message]
     ) -> AnyPublisher<String, Error> {
         // Implementation for remote models (e.g., OpenAI, Anthropic, etc.)
-        // This is a simplified implementation - you'll need to adapt it to your specific API
         
         guard let baseURL = baseURL, let apiKey = apiKey, !apiKey.isEmpty else {
             return Fail(error: LLMError.invalidAPIKey).eraseToAnyPublisher()
         }
         
-        // Prepare the messages array with system prompt and conversation history
-        var messages: [[String: Any]] = []
+        var request = URLRequest(url: baseURL.appendingPathComponent("v1/chat/completions"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        
+        // Prepare the messages array
+        var messages: [[String: String]] = []
         
         // Add system prompt if provided
         if !systemPrompt.isEmpty {
@@ -504,78 +596,66 @@ public final class LLMService: LLMServiceProtocol {
         
         // Add conversation history
         for msg in history {
-            messages.append([
-                "role": msg.isFromUser ? "user" : "assistant",
-                "content": msg.content
-            ])
+            let role = msg.isFromUser ? "user" : "assistant"
+            messages.append(["role": role, "content": msg.content])
         }
         
         // Add the current message
         messages.append(["role": "user", "content": message])
         
-        // Prepare the request body with only non-default values
-        var requestBody: [String: Any] = [
-            "model": model.rawValue,
+        // Prepare the request body
+        let requestBody: [String: Any] = [
+            "model": model.id,
             "messages": messages,
+            "temperature": temperature,
+            "max_tokens": maxTokens,
+            "top_p": topP,
+            "frequency_penalty": frequencyPenalty,
+            "presence_penalty": presencePenalty,
             "stream": false
         ]
         
-        // Add optional parameters if they differ from defaults
-        if temperature != 0.7 { requestBody["temperature"] = temperature }
-        if maxTokens != 0 { requestBody["max_tokens"] = maxTokens }
-        if topP != 1.0 { requestBody["top_p"] = topP }
-        if presencePenalty != 0 { requestBody["presence_penalty"] = presencePenalty }
-        if frequencyPenalty != 0 { requestBody["frequency_penalty"] = frequencyPenalty }
-        
-        // Create the request
-        var request = URLRequest(url: baseURL.appendingPathComponent("/v1/chat/completions"))
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        
         do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: requestBody, options: [])
+            request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
             
-            // Make the request
             return session.dataTaskPublisher(for: request)
-                .mapError { LLMError.requestFailed($0) }
                 .tryMap { data, response -> String in
                     guard let httpResponse = response as? HTTPURLResponse else {
                         throw LLMError.invalidResponse
                     }
                     
-                    guard 200...299 ~= httpResponse.statusCode else {
-                        let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
-                        
-                        switch httpResponse.statusCode {
-                        case 401:
-                            throw LLMError.invalidAPIKey
-                        case 429:
-                            throw LLMError.rateLimitExceeded
-                        case 400...499:
-                            throw LLMError.invalidRequest
-                        case 500...599:
-                            throw LLMError.requestFailed(NSError(domain: "", code: httpResponse.statusCode))
-                        default:
-                            throw LLMError.requestFailed(NSError(
-                                domain: "",
-                                code: httpResponse.statusCode,
-                                userInfo: [NSLocalizedDescriptionKey: errorMessage]
-                            ))
+                    guard (200...299).contains(httpResponse.statusCode) else {
+                        let errorMessage: String
+                        if let errorJson = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                           let error = errorJson["error"] as? [String: Any],
+                           let message = error["message"] as? String {
+                            errorMessage = message
+                        } else {
+                            errorMessage = "Request failed with status code: \(httpResponse.statusCode)"
                         }
+                        
+                        throw LLMError.requestFailed(NSError(
+                            domain: "",
+                            code: httpResponse.statusCode,
+                            userInfo: [NSLocalizedDescriptionKey: errorMessage]
+                        ))
                     }
                     
-                    // Parse the response - adjust this based on your API's response format
-                    if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let choices = json["choices"] as? [[String: Any]],
-                       let firstChoice = choices.first,
-                       let message = firstChoice["message"] as? [String: Any],
-                       let content = message["content"] as? String {
-                        return content
-                    } else {
-                        throw LLMError.invalidResponse
+                    guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                          let choices = json["choices"] as? [[String: Any]],
+                          let firstChoice = choices.first,
+                          let message = firstChoice["message"] as? [String: Any],
+                          let content = message["content"] as? String else {
+                        throw LLMError.decodingError(NSError(
+                            domain: "",
+                            code: -1,
+                            userInfo: [NSLocalizedDescriptionKey: "Failed to decode response"]
+                        ))
                     }
+                    
+                    return content
                 }
+                .receive(on: DispatchQueue.main)
                 .eraseToAnyPublisher()
         } catch {
             return Fail(error: error).eraseToAnyPublisher()

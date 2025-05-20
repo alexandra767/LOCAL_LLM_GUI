@@ -2,11 +2,16 @@ import Foundation
 import SwiftUI
 
 /// Represents the different navigation destinations in the app
-public enum NavigationDestination: Hashable, Sendable, Identifiable {
+@frozen public enum NavigationDestination: Hashable, Sendable, Identifiable {
+    /// The main chats list view
     case chats
+    /// A specific chat conversation
     case chat(id: UUID)
+    /// The projects list view
     case projects
+    /// A specific project
     case project(id: UUID)
+    /// The app settings view
     case settings
     
     public var id: String {

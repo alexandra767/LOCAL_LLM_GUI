@@ -2,53 +2,50 @@ import Foundation
 import Combine
 import SwiftUI
 
-// Import AIModel for default model value
-
 // MARK: - App State
 
 /// The main app state that manages the application's data and state.
 /// This class is responsible for managing conversations, projects, and their persistence.
-
-/// The main app state that manages the application's data and state.
-/// This class is responsible for managing conversations, projects, and their persistence.
 @MainActor
-public final class AppState: ObservableObject {
-    // MARK: - Published Properties
-    
-    /// All conversations in the app, both with and without projects
-    @Published public private(set) var conversations: [Conversation] = []
-    
-    /// All projects in the app
-    @Published public private(set) var projects: [Project] = []
-    
-    /// The currently selected conversation ID
-    @Published public var selectedConversationId: UUID?
-    
-    /// The currently selected project ID
-    @Published public var selectedProjectId: UUID?
-    
-    /// The currently selected AI model
-    @Published public var currentModel: String = AIModel.defaultModel.rawValue
-    
-    // MARK: - Computed Properties
-    
-    /// Recent chats (conversations not in a project)
-    public var recentChats: [Conversation] {
-        conversations.filter { $0.projectId == nil }
-    }
-    
+final class AppState: ObservableObject {
     // MARK: - Private Properties
     
-    private var cancellables = Set<AnyCancellable>()
+    private let saveQueue = DispatchQueue(label: "com.seraph.appstate.save")
     private let userDefaults: UserDefaults
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
-    private let saveQueue = DispatchQueue(label: "com.seraph.appstate.save")
+    private var cancellables = Set<AnyCancellable>()
+    
+    // MARK: - Computed Properties
+    
+    var recentChats: [Conversation] {
+        conversations.filter { $0.projectId == nil }
+    }
+    
+    var selectedConversation: Conversation? {
+        guard let id = selectedConversationId else { return nil }
+        return conversations.first { $0.id == id }
+    }
+    
+    var selectedProject: Project? {
+        guard let id = selectedProjectId else { return nil }
+        return projects.first { $0.id == id }
+    }
+    
+    // MARK: - Published Properties
+    
+    @Published public private(set) var conversations: [Conversation] = []
+    @Published public private(set) var projects: [Project] = []
+    @Published public private(set) var selectedConversationId: UUID?
+    @Published public private(set) var selectedProjectId: UUID?
+    @Published public private(set) var currentModel: String = AIModel.defaultModel.id
+    
+    // MARK: - Shared Instance
+    
+    /// The shared instance of AppState for global access
+    @MainActor public static let shared = AppState()
     
     // MARK: - Initialization
-    
-    /// Shared instance of AppState for app-wide state management
-    public static let shared = AppState()
     
     private init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
@@ -58,106 +55,86 @@ public final class AppState: ObservableObject {
     
     // MARK: - Public Methods
     
-    /// Creates a new conversation and adds it to the recent chats
-    /// - Parameters:
-    ///   - title: The title of the new conversation (default: "New Conversation")
-    ///   - systemPrompt: The system prompt for the conversation (default: empty string)
-    ///   - projectId: The ID of the project this conversation belongs to (default: nil)
-    /// - Returns: The newly created conversation
-    public func createNewConversation(
+    /// Creates a new conversation with the given parameters
+    func createNewConversation(
         title: String = "New Conversation",
         systemPrompt: String = "",
         inProject projectId: UUID? = nil
     ) -> Conversation {
         let conversation = Conversation(
-            id: UUID(),
             title: title,
-            lastMessage: "",
-            timestamp: Date(),
-            unreadCount: 0,
             projectId: projectId,
-            systemPrompt: systemPrompt,
-            messages: []
+            systemPrompt: systemPrompt
         )
         
         conversations.append(conversation)
         selectedConversationId = conversation.id
-        selectedProjectId = projectId
-        
         saveState()
+        
         return conversation
     }
     
-    /// Deletes a conversation from the app state.
-    /// - Parameter conversation: The conversation to delete.
-    public func deleteConversation(_ conversation: Conversation) {
-        conversations.removeAll { $0.id == conversation.id }
-        
-        // Update selected conversation if needed
-        if selectedConversationId == conversation.id {
-            selectedConversationId = nil
-        }
-        
+    /// Adds an existing conversation to the app state
+    /// - Parameter conversation: The conversation to add
+    func addConversation(_ conversation: Conversation) {
+        conversations.append(conversation)
         saveState()
     }
     
-    /// Deletes a conversation
-    /// - Parameter id: The ID of the conversation to delete
-    public func deleteConversation(withId id: UUID) {
+    /// Deletes a conversation with the given ID
+    func deleteConversation(withId id: UUID) {
         conversations.removeAll { $0.id == id }
+        
         if selectedConversationId == id {
-            selectedConversationId = nil
-        }
-        saveState()
-    }
-    
-    /// Creates a new project
-    /// - Parameter title: The title of the new project
-    /// - Returns: The newly created project
-    public func createProject(title: String) -> Project {
-        let project = Project(
-            id: UUID(),
-            name: title,
-            description: "",
-            lastUpdated: Date(),
-            createdAt: Date()
-        )
-        projects.append(project)
-        selectedProjectId = project.id
-        saveState()
-        return project
-    }
-    
-    /// Deletes a project and all its associated conversations.
-    /// - Parameter project: The project to delete.
-    public func deleteProject(_ project: Project) {
-        // Remove the project
-        projects.removeAll { $0.id == project.id }
-        
-        // Remove all conversations associated with this project
-        conversations.removeAll { $0.projectId == project.id }
-        
-        // Update selected conversation/project if needed
-        if selectedProjectId == project.id {
-            selectedProjectId = nil
+            selectedConversationId = conversations.first?.id
         }
         
         saveState()
     }
     
-    /// Deletes a project and all its conversations
-    /// - Parameter id: The ID of the project to delete
-    public func deleteProject(withId id: UUID) {
+    /// Deletes a project and all its associated conversations
+    func deleteProject(_ project: Project) {
+        deleteProject(withId: project.id)
+    }
+    
+    /// Deletes a project with the given ID and moves its conversations to the recent list
+    func deleteProject(withId id: UUID) {
         // Move all conversations to recent chats
         for i in conversations.indices where conversations[i].projectId == id {
             conversations[i].projectId = nil
         }
         
+        // Remove the project
         projects.removeAll { $0.id == id }
+        
+        // Update selection if needed
         if selectedProjectId == id {
-            selectedProjectId = nil
+            selectedProjectId = projects.first?.id
         }
+        
         saveState()
+    }
+    
+    /// Adds a new project to the app state
+    /// - Parameter project: The project to add
+    func addProject(_ project: Project) {
+        projects.append(project)
+        saveState()
+    }
+    
+    /// Creates a new project with the given name and description
+    /// - Parameters:
+    ///   - name: The name of the project
+    ///   - description: An optional description of the project
+    /// - Returns: The newly created project
+    public func createNewProject(name: String, description: String = "") -> Project {
+        let project = Project(name: name, description: description)
+        
+        projects.append(project)
+        selectedProjectId = project.id
+        saveState()
+        
+        return project
     }
     
     // MARK: - Private Methods
@@ -179,102 +156,117 @@ public final class AppState: ObservableObject {
                 self?.saveState()
             }
             .store(in: &cancellables)
-            
-        // Load saved state on init
-        loadState()
     }
     
-    @MainActor
     private func loadState() {
-        // Copy main actor references into local variables first
-        let localUserDefaults = userDefaults
-        let localDecoder = decoder
+        // Load conversations
+        if let conversationsData = UserDefaults.standard.data(forKey: "conversations") {
+            do {
+                let decoder = JSONDecoder()
+                let decodedConversations = try decoder.decode([Conversation].self, from: conversationsData)
+                DispatchQueue.main.async {
+                    self.conversations = decodedConversations
+                }
+                print("✅ Loaded \(decodedConversations.count) conversations")
+            } catch {
+                print("❌ Failed to decode conversations: \(error)")
+            }
+        }
         
-        saveQueue.async {
-            // Load from UserDefaults
-            let conversationsData = localUserDefaults.data(forKey: "conversations")
-            let projectsData = localUserDefaults.data(forKey: "projects")
-            
-            // Decode on background queue
-            var loadedConversations: [Conversation]?
-            var loadedProjects: [Project]?
-            
-            if let data = conversationsData {
-                loadedConversations = try? localDecoder.decode([Conversation].self, from: data)
-            }
-            
-            if let data = projectsData {
-                loadedProjects = try? localDecoder.decode([Project].self, from: data)
-            }
-            
-            // Update state on main actor
-            Task { @MainActor in
-                if let conversations = loadedConversations {
-                    self.conversations = conversations
+        // Load projects
+        if let projectsData = UserDefaults.standard.data(forKey: "projects") {
+            do {
+                let decoder = JSONDecoder()
+                let decodedProjects = try decoder.decode([Project].self, from: projectsData)
+                DispatchQueue.main.async {
+                    self.projects = decodedProjects
                 }
-                
-                if let projects = loadedProjects {
-                    self.projects = projects
-                }
+                print("✅ Loaded \(decodedProjects.count) projects")
+            } catch {
+                print("❌ Failed to decode projects: \(error)")
             }
+        }
+        
+        // Load selected conversation ID
+        if let selectedIdString = UserDefaults.standard.string(forKey: "selectedConversationId"),
+           let selectedId = UUID(uuidString: selectedIdString) {
+            DispatchQueue.main.async {
+                self.selectedConversationId = selectedId
+            }
+            print("✅ Loaded selected conversation ID: \(selectedId)")
+        }
+        
+        // Load selected project ID
+        if let projectIdString = UserDefaults.standard.string(forKey: "selectedProjectId"),
+           let projectId = UUID(uuidString: projectIdString) {
+            DispatchQueue.main.async {
+                self.selectedProjectId = projectId
+            }
+            print("✅ Loaded selected project ID: \(projectId)")
         }
     }
     
-    @MainActor
-    private func saveState() {
-        // Safely capture main actor properties
-        let localConversations = conversations
-        let localProjects = projects
-        let localSelectedConversationId = selectedConversationId
-        let localSelectedProjectId = selectedProjectId
-        let localEncoder = encoder
-        let localUserDefaults = userDefaults
+    /// Saves the current state to UserDefaults
+    public func saveState() {
+        let conversationsToSave = conversations
+        let projectsToSave = projects
+        let selectedConversationId = selectedConversationId
+        let selectedProjectId = selectedProjectId
         
-        saveQueue.async {
-            // Encode data on background queue
-            let conversationsData = try? localEncoder.encode(localConversations)
-            let projectsData = try? localEncoder.encode(localProjects)
-            
-            // Save to UserDefaults
-            if let data = conversationsData {
-                localUserDefaults.set(data, forKey: "conversations")
-            }
-            
-            if let data = projectsData {
-                localUserDefaults.set(data, forKey: "projects")
-            }
-            
-            if let selectedId = localSelectedConversationId {
-                localUserDefaults.set(selectedId.uuidString, forKey: "selectedConversationId")
-            } else {
-                localUserDefaults.removeObject(forKey: "selectedConversationId")
-            }
-            
-            if let selectedId = localSelectedProjectId {
-                localUserDefaults.set(selectedId.uuidString, forKey: "selectedProjectId")
-            } else {
-                localUserDefaults.removeObject(forKey: "selectedProjectId")
+        // Save to disk on a background queue
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            do {
+                let encoder = JSONEncoder()
+                
+                // Encode conversations
+                let conversationsData = try encoder.encode(conversationsToSave)
+                UserDefaults.standard.set(conversationsData, forKey: "conversations")
+                
+                // Encode projects
+                let projectsData = try encoder.encode(projectsToSave)
+                UserDefaults.standard.set(projectsData, forKey: "projects")
+                
+                // Save selected IDs
+                UserDefaults.standard.set(selectedConversationId?.uuidString, forKey: "selectedConversationId")
+                UserDefaults.standard.set(selectedProjectId?.uuidString, forKey: "selectedProjectId")
+                
+                print("✅ App state saved successfully")
+            } catch {
+                print("❌ Failed to save app state: \(error)")
+                print("Failed to save app state: \(error)")
             }
         }
     }
 }
+
 // MARK: - Preview Support
 
 #if DEBUG
+@MainActor
 extension AppState {
     static var preview: AppState {
         let state = AppState()
         
-        // Add sample projects
-        let project1 = state.createProject(title: "Project 1")
-        _ = state.createProject(title: "Project 2")
+        // Add some sample conversations
+        let conversation1 = state.createNewConversation(title: "Sample Chat 1")
+        let message1 = Message(content: "Hello, how are you?", timestamp: Date().addingTimeInterval(-3600), isFromUser: true)
+        let message2 = Message(content: "I'm doing well, thank you! How can I help you today?", timestamp: Date().addingTimeInterval(-3500), isFromUser: false)
+        try? conversation1.addMessage(message1)
+        try? conversation1.addMessage(message2)
         
-        // Add sample conversations
-        _ = state.createNewConversation(title: "Welcome to Seraph")
-        _ = state.createNewConversation(
-            title: "Project Discussion",
-            inProject: project1.id
-        )
+        let conversation2 = state.createNewConversation(title: "Sample Chat 2")
+        let message3 = Message(content: "What's the weather like?", timestamp: Date().addingTimeInterval(-1800), isFromUser: true)
+        let message4 = Message(content: "I'm sorry, I don't have access to real-time weather data.", timestamp: Date().addingTimeInterval(-1750), isFromUser: false)
+        try? conversation2.addMessage(message3)
+        try? conversation2.addMessage(message4)
+        
+        // Add a sample project
+        let project = state.createNewProject(name: "Sample Project")
+        let projectConversation = state.createNewConversation(title: "Project Chat 1", inProject: project.id)
+        let projectMessage = Message(content: "Let's work on the project", timestamp: Date().addingTimeInterval(-900), isFromUser: true)
+        try? projectConversation.addMessage(projectMessage)
+        
+        state.selectedConversationId = conversation1.id
         
         return state
     }

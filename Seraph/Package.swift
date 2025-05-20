@@ -30,12 +30,14 @@ let package = Package(
             dependencies: [
                 .product(name: "CombineExt", package: "CombineExt")
             ],
-            exclude: [
+            resources: [
+                .process("Resources")
             ],
-            resources: [],
             swiftSettings: [
                 .define("DEBUG", .when(configuration: .debug)),
-                .define("RELEASE", .when(configuration: .release))
+                .define("RELEASE", .when(configuration: .release)),
+                .unsafeFlags(["-enable-library-evolution"]),  // For better module stability
+                .unsafeFlags(["-enable-testing"])
             ]
         ),
         
@@ -45,8 +47,11 @@ let package = Package(
             dependencies: ["Seraph"],
             path: "Sources/SeraphApp",
             exclude: [
+                "Info.plist"
             ],
-            resources: [],
+            resources: [
+                .process("Resources")
+            ],
             swiftSettings: [
                 .define("DEBUG", .when(configuration: .debug)),
                 .define("RELEASE", .when(configuration: .release))

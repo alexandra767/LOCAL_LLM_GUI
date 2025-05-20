@@ -36,9 +36,9 @@ public struct MainView: View {
                                     project: Binding(
                                         get: { project },
                                         set: { _ in }
-                                    ),
-                                    appState: appState
+                                    )
                                 )
+                                .environmentObject(appState)
                             } else {
                                 ContentUnavailableView("Project not found", systemImage: "folder")
                             }

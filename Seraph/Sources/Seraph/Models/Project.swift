@@ -1,20 +1,49 @@
 import Foundation
 import SwiftUI
+import Combine
 
 /// Represents a project in the app
-public final class Project: Identifiable, ObservableObject, Codable {
+@preconcurrency
+public final class Project: Identifiable, ObservableObject, Codable, @unchecked Sendable {
+    @MainActor public var objectWillChange: ObservableObjectPublisher? = nil
+    
+    private let accessQueue = DispatchQueue(label: "com.seraph.project", attributes: .concurrent)
     public let id: UUID
     public var name: String {
-        didSet { updateLastModified() }
+        get { accessQueue.sync { _name } }
+        set { accessQueue.async(flags: .barrier) { [weak self] in
+            self?._name = newValue
+            self?.updateLastModified()
+            DispatchQueue.main.async {
+                self?.objectWillChange?.send()
+            }
+        }}
     }
     public var description: String {
-        didSet { updateLastModified() }
+        get { accessQueue.sync { _description } }
+        set { accessQueue.async(flags: .barrier) { [weak self] in
+            self?._description = newValue
+            self?.updateLastModified()
+            DispatchQueue.main.async {
+                self?.objectWillChange?.send()
+            }
+        }}
     }
     public private(set) var lastUpdated: Date
     public let createdAt: Date
     
+    // Private backing storage
+    private var _name: String
+    private var _description: String
+    
     private func updateLastModified() {
-        lastUpdated = Date()
+        accessQueue.async(flags: .barrier) { [weak self] in
+            guard let self = self else { return }
+            self.lastUpdated = Date()
+            DispatchQueue.main.async { [weak self] in
+                self?.objectWillChange?.send()
+            }
+        }
     }
     
     // MARK: - Initialization
@@ -27,10 +56,13 @@ public final class Project: Identifiable, ObservableObject, Codable {
         createdAt: Date = Date()
     ) {
         self.id = id
-        self.name = name
-        self.description = description
+        self._name = name
+        self._description = description
         self.lastUpdated = lastUpdated
         self.createdAt = createdAt
+        
+        // Initialize the publisher
+        self.objectWillChange = ObservableObjectPublisher()
     }
     
     // MARK: - Codable

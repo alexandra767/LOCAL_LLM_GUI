@@ -1,8 +1,10 @@
 import SwiftUI
 import Combine
 
+// Models and services are in the same module, no need to import them
+
 @MainActor
-public final class ProjectViewModel: ObservableObject {
+public final class ProjectViewModel: ObservableObject, Sendable {
     @Published var isEditing = false
     @Published var newConversationTitle = ""
     @Published var showingNewConversationSheet = false
@@ -17,12 +19,12 @@ public final class ProjectViewModel: ObservableObject {
     }
     
     func createNewConversation() -> Conversation {
-        let title = newConversationTitle.isEmpty ? "New Conversation" : newConversationTitle
-        return appState.createNewConversation(
-            title: title,
-            systemPrompt: "",
+        let conversation = appState.createNewConversation(
+            title: newConversationTitle.isEmpty ? "New Conversation" : newConversationTitle,
             inProject: project.id
         )
+        appState.saveState()
+        return conversation
     }
     
     func deleteConversation(at offsets: IndexSet) {
@@ -33,37 +35,49 @@ public final class ProjectViewModel: ObservableObject {
             guard index < conversations.count else { continue }
             appState.deleteConversation(withId: conversations[index].id)
         }
+        appState.saveState()
     }
     
     func deleteProject() {
         appState.deleteProject(withId: project.id)
+        appState.saveState()
+    }
+    
+    func selectConversation(_ conversationId: String) {
+        appState.selectedConversationId = conversationId
+    }
+    
+    func moveConversation(from source: IndexSet, to destination: Int) {
+        // Implement conversation moving logic here
     }
 }
 
 /// A view that displays the details of a project and its related conversations
 public struct ProjectView: View {
     @StateObject private var viewModel: ProjectViewModel
-    @Binding public var project: Project
-    private let appState: AppState
     
-    // MARK: - Initialization
-    
-    public init(project: Binding<Project>, appState: AppState) {
-        self.appState = appState
-        self._project = project
-        let viewModel = ProjectViewModel(project: project.wrappedValue, appState: appState)
-        self._viewModel = StateObject(wrappedValue: viewModel)
+    public init(project: Project) {
+        _viewModel = StateObject(wrappedValue: ProjectViewModel(project: project, appState: AppState.shared))
     }
     
-    @Environment(\.dismiss) private var dismiss
+    private func createNewConversation() -> Conversation {
+        let conversation = viewModel.createNewConversation()
+        // Update the selected conversation ID through the view model
+        viewModel.selectConversation(conversation.id)
+        return conversation
+    }
     
-    /// The conversations that belong to this project
+    private func deleteConversation(at offsets: IndexSet) {
+        viewModel.deleteConversation(at: offsets)
+    }
+    
     private var projectConversations: [Conversation] {
-        appState.conversations.filter { $0.projectId == project.id }
+        viewModel.appState.conversations.filter { $0.projectId == viewModel.project.id }
     }
     
-    private func deleteConversation(_ conversation: Conversation) {
-        appState.deleteConversation(withId: conversation.id)
+    @MainActor
+    private func moveConversation(from source: IndexSet, to destination: Int) {
+        viewModel.moveConversation(from: source, to: destination)
     }
     
     public var body: some View {

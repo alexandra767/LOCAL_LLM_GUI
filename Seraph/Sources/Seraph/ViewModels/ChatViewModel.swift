@@ -3,12 +3,13 @@ import Combine
 
 /// ViewModel responsible for handling chat-related business logic
 @MainActor
-final class ChatViewModel: ObservableObject {
+public final class ChatViewModel: ObservableObject {
     // MARK: - Properties
+    
+    private var cancellables = Set<AnyCancellable>()
     
     private let conversation: Conversation
     private let llmService: LLMServiceProtocol
-    private var cancellables = Set<AnyCancellable>()
     
     // MARK: - Initialization
     
@@ -145,12 +146,16 @@ extension ChatViewModel {
 private class PreviewLLMService: LLMServiceProtocol {
     var baseURL: URL?
     var apiKey: String?
-    var defaultModel: AIModel = .llama3
+    var defaultModelId: String = AIModel.llama3.id
     var maxTokens: Int = 2048
     var temperature: Double = 0.7
     var topP: Double = 0.9
     var presencePenalty: Double = 0.0
     var frequencyPenalty: Double = 0.0
+    
+    var defaultModel: AIModel {
+        AIModel.allModels.first(where: { $0.id == defaultModelId }) ?? .llama3
+    }
     
     func generateResponse(
         message: String,
@@ -160,17 +165,24 @@ private class PreviewLLMService: LLMServiceProtocol {
     ) -> AnyPublisher<String, Error> {
         return Just("This is a sample response from the AI.")
             .setFailureType(to: Error.self)
-            .delay(for: .seconds(1), scheduler: DispatchQueue.main)
             .eraseToAnyPublisher()
     }
     
-    func isModelAvailable(_ model: AIModel) -> Bool { true }
+    func isModelAvailable(_ model: AIModel) -> Bool {
+        return true
+    }
     
-    func availableModels() -> [AIModel] { AIModel.allCases }
+    func availableModels() -> [AIModel] {
+        return AIModel.allCases
+    }
     
-    func cancelAllRequests() {}
+    func cancelAllRequests() {
+        // No-op for preview
+    }
     
-    func validateAPIKey(_ apiKey: String) -> Bool { true }
+    func validateAPIKey(_ apiKey: String) -> Bool {
+        return !apiKey.isEmpty
+    }
     
     func streamMessage(
         _ message: String,
@@ -178,8 +190,18 @@ private class PreviewLLMService: LLMServiceProtocol {
         systemPrompt: String,
         temperature: Double
     ) -> AnyPublisher<String, Error> {
-        Just("Streaming response for: \(message)")
-            .setFailureType(to: Error.self)
+        let responses = [
+            "This is a sample streaming response ",
+            "from the AI. It's being streamed ",
+            "back to you in chunks."
+        ]
+        
+        return Publishers.Sequence(sequence: responses)
+            .flatMap { response in
+                Just(response)
+                    .delay(for: .milliseconds(100), scheduler: DispatchQueue.main)
+                    .setFailureType(to: Error.self)
+            }
             .eraseToAnyPublisher()
     }
     
@@ -189,7 +211,24 @@ private class PreviewLLMService: LLMServiceProtocol {
         conversationHistory: [Message],
         completion: @escaping CompletionHandler
     ) {
-        completion(.success("Response to: \(prompt)"))
+        let aiModel = AIModel.allModels.first { $0.id == model } ?? defaultModel
+        generateResponse(
+            message: prompt,
+            model: aiModel,
+            systemPrompt: "",
+            history: conversationHistory
+        )
+        .sink(
+            receiveCompletion: { result in
+                if case .failure(let error) = result {
+                    completion(.failure(error))
+                }
+            },
+            receiveValue: { response in
+                completion(.success(response))
+            }
+        )
+        .store(in: &cancellables)
     }
 }
 #endif
