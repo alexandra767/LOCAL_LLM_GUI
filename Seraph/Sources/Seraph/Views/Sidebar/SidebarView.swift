@@ -34,7 +34,7 @@ public struct SidebarView: View {
                     .tag(NavigationDestination.chat(id: conversation.id))
                     .contextMenu {
                         Button(role: .destructive) {
-                            appState.deleteConversation(conversation.id)
+                            appState.deleteConversation(withId: conversation.id)
                         } label: {
                             Label("Delete", systemImage: "trash")
                         }
@@ -42,8 +42,8 @@ public struct SidebarView: View {
                 }
                 
                 Button(action: {
-                    Task { @MainActor in
-                        await appState.createNewConversation()
+                    Task { 
+                        appState.createNewConversation()
                     }
                 }) {
                     Label("New Chat", systemImage: "plus.circle")
@@ -115,15 +115,8 @@ public struct SidebarView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Create") {
-                        let project = Project(
-                            id: UUID(),
-                            name: newProjectName,
-                            description: "",
-                            lastUpdated: Date(),
-                            createdAt: Date()
-                        )
-                        Task { @MainActor in
-                            _ = await appState.createNewProject()
+                        Task { 
+                            appState.createProject(title: newProjectName)
                             isShowingNewProjectSheet = false
                             newProjectName = ""
                         }
@@ -148,23 +141,7 @@ struct SidebarView_Previews: PreviewProvider {
     static var previews: some View {
         let appState = AppState.preview
         
-        // Add some sample data
-        let conversation = Conversation(
-            title: "Sample Chat",
-            lastMessage: "Hello, how can I help?",
-            unreadCount: 0
-        )
-        
-        appState.recentChats = [conversation]
-        
-        let project = Project(
-            id: UUID(),
-            name: "Sample Project",
-            description: "A sample project",
-            lastUpdated: Date(),
-            createdAt: Date()
-        )
-        appState.projects = [project]
+        // For preview we use the preview state that already has data
         
         return SidebarView(
             selection: .constant(nil),

@@ -31,13 +31,8 @@ let package = Package(
                 .product(name: "CombineExt", package: "CombineExt")
             ],
             exclude: [
-                "App/AppEntry.swift",
-                "App/Preview Content",
-                "Info.plist"
             ],
-            resources: [
-                .process("Resources")
-            ],
+            resources: [],
             swiftSettings: [
                 .define("DEBUG", .when(configuration: .debug)),
                 .define("RELEASE", .when(configuration: .release))
@@ -48,9 +43,8 @@ let package = Package(
         .executableTarget(
             name: "SeraphApp",
             dependencies: ["Seraph"],
-            path: "Sources/Seraph/App",
+            path: "Sources/SeraphApp",
             exclude: [
-                "Preview Content"
             ],
             resources: [],
             swiftSettings: [

@@ -172,7 +172,12 @@ private class PreviewLLMService: LLMServiceProtocol {
     
     func validateAPIKey(_ apiKey: String) -> Bool { true }
     
-    func streamMessage(_ message: String, model: String, systemPrompt: String, temperature: Double) -> AnyPublisher<String, Error> {
+    func streamMessage(
+        _ message: String,
+        model: AIModel,
+        systemPrompt: String,
+        temperature: Double
+    ) -> AnyPublisher<String, Error> {
         Just("Streaming response for: \(message)")
             .setFailureType(to: Error.self)
             .eraseToAnyPublisher()

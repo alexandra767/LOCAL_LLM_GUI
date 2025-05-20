@@ -1,6 +1,5 @@
 import SwiftUI
 import Combine
-import Seraph
 
 @MainActor
 public final class ProjectViewModel: ObservableObject {
@@ -37,7 +36,7 @@ public final class ProjectViewModel: ObservableObject {
     }
     
     func deleteProject() {
-        appState.deleteProject(project.id)
+        appState.deleteProject(withId: project.id)
     }
 }
 
@@ -211,45 +210,35 @@ public struct ProjectView: View {
 // MARK: - Previews
 
 #Preview("With Conversations") {
-    let appState = AppState()
+    let appState = AppState.shared
     let project = Project(
         name: "Sample Project",
         description: "This is a sample project with some conversations."
     )
     
-    Task {
-        // Create the project
-        await appState.createProject(project)
-        
-        // Add sample conversations
-        _ = await appState.createNewConversation(
-            title: "Sample Conversation 1",
-            systemPrompt: "",
-            inProject: project.id
-        )
-        
-        _ = await appState.createNewConversation(
-            title: "Sample Conversation 2",
-            systemPrompt: "",
-            inProject: project.id
-        )
-    }
+    // Create project data setup
+    // Task {
+    //     await appState.createProject(title: project.name)
+    //     _ = await appState.createNewConversation(title: "Sample Conversation 1", systemPrompt: "", inProject: project.id)
+    //     _ = await appState.createNewConversation(title: "Sample Conversation 2", systemPrompt: "", inProject: project.id)
+    // }
     
-    return ProjectView(project: .constant(project), appState: appState)
+    ProjectView(project: .constant(project), appState: appState)
         .environmentObject(appState)
 }
 
 #Preview("Empty Project") {
-    let appState = AppState()
+    let appState = AppState.shared
     let project = Project(
         name: "Empty Project",
         description: "This project has no conversations yet."
     )
     
-    Task {
-        await appState.createProject(project)
-    }
+    // Project data setup for preview
+    // Task {
+    //     await appState.createProject(title: project.name)
+    // }
     
-    return ProjectView(project: .constant(project), appState: appState)
+    ProjectView(project: .constant(project), appState: appState)
         .environmentObject(appState)
 }

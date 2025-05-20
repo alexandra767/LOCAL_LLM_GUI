@@ -155,7 +155,7 @@ public protocol LLMServiceProtocol: AnyObject {
         prompt: String,
         model: String,
         conversationHistory: [Message],
-        completion: @escaping CompletionHandler
+        completion: @escaping (Result<String, Error>) -> Void
     )
 }
 
@@ -372,8 +372,8 @@ public final class LLMService: LLMServiceProtocol {
                 }
                 
                 guard 200...299 ~= httpResponse.statusCode else {
-                    if let error = try? JSONDecoder().decode([String: Any].self, from: data) {
-                        throw NSError(domain: "", code: httpResponse.statusCode, userInfo: error)
+                    if let jsonObject = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                        throw NSError(domain: "", code: httpResponse.statusCode, userInfo: jsonObject)
                     } else {
                         throw LLMError.invalidResponse
                     }
@@ -401,14 +401,7 @@ public final class LLMService: LLMServiceProtocol {
         return AIModel.allCases
     }
     
-    public func cancelAllRequests() {
-        // Cancel all Combine subscriptions
-        cancellables.removeAll()
-        
-        // Cancel all active URLSession tasks
-        tasks.forEach { $0.cancel() }
-        tasks.removeAll()
-    }
+    // This method is already implemented above
     
     public func validateAPIKey(_ apiKey: String) -> Bool {
         // Simple validation - in a real app, you might want to make a test API call

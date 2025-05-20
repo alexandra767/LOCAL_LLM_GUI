@@ -1,14 +1,23 @@
 import SwiftUI
+import Seraph
 
 @main
+@available(macOS 13.0, *)
 struct SeraphApp: App {
     @StateObject private var appState = AppState.shared
     
     var body: some Scene {
         WindowGroup {
-            MainView()
-                .environmentObject(appState)
-                .frame(minWidth: 800, minHeight: 600)
+            Group {
+                if #available(macOS 14.0, *) {
+                    MainView()
+                        .environmentObject(appState)
+                } else {
+                    Text("Seraph requires macOS 14.0 or newer")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            .frame(minWidth: 800, minHeight: 600)
         }
         .commands {
             SidebarCommands()
@@ -16,7 +25,7 @@ struct SeraphApp: App {
             
             CommandGroup(after: .newItem) {
                 Button("New Chat") {
-                    appState.createNewConversation()
+                    _ = appState.createNewConversation()
                 }
                 .keyboardShortcut("n", modifiers: .command)
                 

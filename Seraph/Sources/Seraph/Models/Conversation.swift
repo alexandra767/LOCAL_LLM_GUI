@@ -4,7 +4,7 @@ import Combine
 
 /// Represents a conversation in the app, containing a series of messages between the user and the AI.
 /// This class is observable and codable for persistence.
-public final class Conversation: ConversationProtocol, ObservableObject, Identifiable, Sendable, Codable {
+public final class Conversation: ConversationProtocol, ObservableObject, Identifiable, Codable {
     public typealias MessageType = Message
     
     // MARK: - Properties

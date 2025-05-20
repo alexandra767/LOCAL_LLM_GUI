@@ -76,8 +76,8 @@ public struct MainView: View {
         .onAppear {
             // Load initial state if needed
             if appState.recentChats.isEmpty {
-                Task { @MainActor in
-                    await appState.createNewConversation(title: "New Chat")
+                Task {
+                    appState.createNewConversation(title: "New Chat")
                 }
             }
         }
@@ -127,22 +127,20 @@ struct MainView_Previews: PreviewProvider {
                     
                     Task {
                         // Create a sample conversation
-                        let conversation = await appState.createNewConversation(title: "Sample Chat")
+                        _ = appState.createNewConversation(title: "Sample Chat")
                         
                         // Create a sample project
                         let project = Project(
                             name: "Sample Project",
                             description: "A sample project"
                         )
-                        await appState.createProject(project)
+                        _ = appState.createProject(title: project.name)
                         
                         // Create a conversation in the project
-                        let projectConversation = await appState.createNewConversation(
+                        _ = appState.createNewConversation(
                             title: "Project Chat",
                             inProject: project.id
                         )
-                        
-                        // The conversations are already updated by createNewConversation
                     }
                 }
         }

@@ -72,12 +72,12 @@ public final class AppState: ObservableObject {
         let conversation = Conversation(
             id: UUID(),
             title: title,
-            messages: [],
             lastMessage: "",
             timestamp: Date(),
             unreadCount: 0,
             projectId: projectId,
-            systemPrompt: systemPrompt
+            systemPrompt: systemPrompt,
+            messages: []
         )
         
         conversations.append(conversation)
@@ -184,48 +184,76 @@ public final class AppState: ObservableObject {
         loadState()
     }
     
+    @MainActor
     private func loadState() {
-        saveQueue.async { [weak self] in
-            guard let self = self else { return }
+        // Copy main actor references into local variables first
+        let localUserDefaults = userDefaults
+        let localDecoder = decoder
+        
+        saveQueue.async {
+            // Load from UserDefaults
+            let conversationsData = localUserDefaults.data(forKey: "conversations")
+            let projectsData = localUserDefaults.data(forKey: "projects")
             
-            if let data = self.userDefaults.data(forKey: "conversations"),
-               let conversations = try? self.decoder.decode([Conversation].self, from: data) {
-                DispatchQueue.main.async {
-                    self.conversations = conversations
-                }
+            // Decode on background queue
+            var loadedConversations: [Conversation]?
+            var loadedProjects: [Project]?
+            
+            if let data = conversationsData {
+                loadedConversations = try? localDecoder.decode([Conversation].self, from: data)
             }
             
-            if let data = self.userDefaults.data(forKey: "projects"),
-               let projects = try? self.decoder.decode([Project].self, from: data) {
-                DispatchQueue.main.async {
+            if let data = projectsData {
+                loadedProjects = try? localDecoder.decode([Project].self, from: data)
+            }
+            
+            // Update state on main actor
+            Task { @MainActor in
+                if let conversations = loadedConversations {
+                    self.conversations = conversations
+                }
+                
+                if let projects = loadedProjects {
                     self.projects = projects
                 }
             }
         }
     }
     
+    @MainActor
     private func saveState() {
-        saveQueue.async { [weak self] in
-            guard let self = self else { return }
+        // Safely capture main actor properties
+        let localConversations = conversations
+        let localProjects = projects
+        let localSelectedConversationId = selectedConversationId
+        let localSelectedProjectId = selectedProjectId
+        let localEncoder = encoder
+        let localUserDefaults = userDefaults
+        
+        saveQueue.async {
+            // Encode data on background queue
+            let conversationsData = try? localEncoder.encode(localConversations)
+            let projectsData = try? localEncoder.encode(localProjects)
             
-            if let data = try? self.encoder.encode(self.conversations) {
-                self.userDefaults.set(data, forKey: "conversations")
+            // Save to UserDefaults
+            if let data = conversationsData {
+                localUserDefaults.set(data, forKey: "conversations")
             }
             
-            if let data = try? self.encoder.encode(self.projects) {
-                self.userDefaults.set(data, forKey: "projects")
+            if let data = projectsData {
+                localUserDefaults.set(data, forKey: "projects")
             }
             
-            if let selectedId = self.selectedConversationId {
-                self.userDefaults.set(selectedId.uuidString, forKey: "selectedConversationId")
+            if let selectedId = localSelectedConversationId {
+                localUserDefaults.set(selectedId.uuidString, forKey: "selectedConversationId")
             } else {
-                self.userDefaults.removeObject(forKey: "selectedConversationId")
+                localUserDefaults.removeObject(forKey: "selectedConversationId")
             }
             
-            if let selectedProjectId = self.selectedProjectId {
-                self.userDefaults.set(selectedProjectId.uuidString, forKey: "selectedProjectId")
+            if let selectedId = localSelectedProjectId {
+                localUserDefaults.set(selectedId.uuidString, forKey: "selectedProjectId")
             } else {
-                self.userDefaults.removeObject(forKey: "selectedProjectId")
+                localUserDefaults.removeObject(forKey: "selectedProjectId")
             }
         }
     }

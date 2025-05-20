@@ -85,7 +85,9 @@ public struct SettingsView: View {
         .frame(minWidth: 400, minHeight: 400)
         .onAppear {
             // Load saved settings
-            selectedModel = appState.currentModel
+            if let model = AIModel(rawValue: appState.currentModel) {
+                selectedModel = model
+            }
             temperature = UserDefaults.standard.double(forKey: "temperature")
             if temperature == 0 {
                 temperature = 0.7 // Default value

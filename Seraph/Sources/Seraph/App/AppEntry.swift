@@ -1,21 +1,28 @@
 import SwiftUI
 
 /// The main entry point for the Seraph application.
-@main
+@available(macOS 13.0, *)
 struct SeraphApp: App {
     @StateObject private var appState = AppState.shared
     
     var body: some Scene {
         WindowGroup {
-            MainView()
-                .environmentObject(appState)
-                .frame(minWidth: 800, minHeight: 600)
+            Group {
+                if #available(macOS 14.0, *) {
+                    MainView()
+                        .environmentObject(appState)
+                } else {
+                    Text("Seraph requires macOS 14.0 or newer")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            .frame(minWidth: 800, minHeight: 600)
         }
         .commands {
             CommandGroup(after: .newItem) {
                 Button("New Chat") {
-                    Task { @MainActor in
-                        await appState.createNewConversation()
+                    Task { 
+                        appState.createNewConversation()
                     }
                 }
                 .keyboardShortcut("n", modifiers: .command)
