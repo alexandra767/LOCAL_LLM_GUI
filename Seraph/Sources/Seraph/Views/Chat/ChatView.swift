@@ -3,20 +3,6 @@ import Combine
 import Foundation
 import AppKit
 
-// MARK: - Type Aliases
-
-// MARK: - Message Status
-
-public extension Message {
-    enum Status: String, Codable {
-        case sending
-        case sent
-        case delivered
-        case read
-        case failed
-    }
-}
-
 // MARK: - Message View
 
 struct MessageView: View {
@@ -78,6 +64,7 @@ public struct ChatView: View {
     @State private var availableModels: [AIModel] = []
     @State private var systemPrompt: String = "You are a helpful AI assistant."
     @State private var isProcessing: Bool = false
+    @State private var showSettings: Bool = false
     @State private var cancellables = Set<AnyCancellable>()
     
     private let llmService: LLMServiceProtocol
@@ -88,13 +75,13 @@ public struct ChatView: View {
     /// - Parameters:
     ///   - conversation: The conversation to display and manage
     ///   - llmService: The LLM service to use for generating responses
-    public init(conversation: Conversation, llmService: LLMServiceProtocol = LLMService.shared) {
+    public init(conversation: Conversation, llmService: LLMServiceProtocol) {
         self.conversation = conversation
         self.llmService = llmService
         
         // Initialize selected model if available
-        if let firstModel = AIModel.availableModels.first {
-            _selectedModelId = State(initialValue: firstModel.id)
+        if let firstModel = AIModel.allModels.first {
+            _selectedModelId = State(initialValue: firstModel.rawValue)
         }
     }
     
@@ -113,6 +100,9 @@ public struct ChatView: View {
         }
         .navigationTitle(conversation.title)
         .onAppear(perform: setupView)
+        .sheet(isPresented: $showSettings) {
+            showSettingsSheet()
+        }
     }
     
     // MARK: - View Components
@@ -120,7 +110,7 @@ public struct ChatView: View {
     private var modelSelector: some View {
         Picker("Model", selection: $selectedModelId) {
             ForEach(availableModels) { model in
-                Text(model.name).tag(model.id)
+                Text(model.displayName).tag(model.rawValue)
             }
         }
         .pickerStyle(SegmentedPickerStyle())
@@ -187,12 +177,14 @@ public struct ChatView: View {
     // MARK: - Private Methods
     
     private func setupView() {
-        // Initialize available models
-        availableModels = AIModel.availableModels
-        
-        // Select first model by default if none selected
-        if selectedModelId.isEmpty && !availableModels.isEmpty {
-            selectedModelId = availableModels[0].id
+        Task { @MainActor in
+            // Initialize available models
+            availableModels = AIModel.allModels
+            
+            // Select first model by default if none selected
+            if selectedModelId.isEmpty && !availableModels.isEmpty {
+                selectedModelId = availableModels[0].rawValue
+            }
         }
     }
     
@@ -205,15 +197,14 @@ public struct ChatView: View {
     
     private func sendMessage() {
         guard !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              let selectedModel = availableModels.first(where: { $0.id == selectedModelId }) else {
+              let selectedModel = availableModels.first(where: { $0.rawValue == selectedModelId }) else {
             return
         }
         
         let userMessage = Message(
-            id: UUID(),
             content: messageText,
-            isFromUser: true,
             timestamp: Date(),
+            isFromUser: true,
             status: .sent
         )
         
@@ -229,18 +220,17 @@ public struct ChatView: View {
         // Generate AI response
         Task {
             do {
-                let response = try await llmService.generateResponse(
-                    for: userMessage.content,
+                let response = try await llmService.sendMessage(
+                    messageText,
                     conversation: conversation,
-                    model: selectedModel,
-                    systemPrompt: systemPrompt
+                    systemPrompt: systemPrompt,
+                    model: selectedModel
                 )
                 
                 let aiMessage = Message(
-                    id: UUID(),
                     content: response,
-                    isFromUser: false,
                     timestamp: Date(),
+                    isFromUser: false,
                     status: .sent
                 )
                 
@@ -251,12 +241,9 @@ public struct ChatView: View {
                 }
             } catch {
                 print("Error generating response: \(error)")
-                await MainActor.run {
-                    isProcessing = false
-                }
+                isProcessing = false
             }
         }
-    }
     }
     
     // MARK: - Settings Sheet
@@ -272,14 +259,13 @@ public struct ChatView: View {
                 Section(header: Text("AI Model")) {
                     Picker("Model", selection: $selectedModelId) {
                         ForEach(availableModels) { model in
-                            Text(model.name).tag(model.id)
+                            Text(model.displayName).tag(model.rawValue)
                         }
                     }
                     .pickerStyle(.menu)
                 }
             }
             .navigationTitle("Settings")
-            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
@@ -289,7 +275,6 @@ public struct ChatView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         conversation.systemPrompt = systemPrompt
-                        conversation.modelId = selectedModelId
                         showSettings = false
                     }
                 }
@@ -298,74 +283,13 @@ public struct ChatView: View {
         .frame(width: 500, height: 400)
     }
     
-    
-    private func processMessage() {
-        guard !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        
-        isProcessing = true
-        
-        // Create user message
-        let userMessage = Message(
-            id: UUID(),
-            content: messageText,
-            timestamp: Date(),
-            isFromUser: true,
-            status: .sent
-        )
-        
-        // Add user message to conversation
-        conversation.addMessage(userMessage)
-        messageText = ""
-        
-        // Create assistant message
-        let assistantMessage = Message(
-            id: UUID(),
-            content: "",
-            timestamp: Date(),
-            isFromUser: false,
-            status: .sending
-        )
-        
-        // Add assistant message to conversation
-        conversation.addMessage(assistantMessage)
-        
-        // Get the selected model or use the first available one
-        guard let model = availableModels.first(where: { $0.id == selectedModelId }) ?? availableModels.first else {
-            updateMessage(assistantMessage.id, with: "Error: No available models", status: .failed)
-            isProcessing = false
-            return
-        }
-        
-        // Send message to LLM service
-        Task {
-            do {
-                let response = try await llmService.sendMessage(
-                    userMessage.content,
-                    conversation: conversation,
-                    systemPrompt: systemPrompt,
-                    model: model
-                )
-                
-                // Update the assistant message with the response
-                await MainActor.run {
-                    updateMessage(assistantMessage.id, with: response, status: .sent)
-                    isProcessing = false
-                }
-            } catch {
-                await MainActor.run {
-                    updateMessage(assistantMessage.id, with: "Error: \(error.localizedDescription)", status: .failed)
-                    isProcessing = false
-                }
-            }
-        }
-    }
-    
-    private func updateMessage(_ id: UUID, with content: String, status: Message.Status) {
+    private func updateMessage(_ id: UUID, with content: String, status: MessageStatus) {
         if let index = conversation.messages.firstIndex(where: { $0.id == id }) {
             conversation.messages[index].content = content
             conversation.messages[index].status = status
         }
     }
+}
 
 // MARK: - Preview Provider
 
@@ -374,7 +298,6 @@ struct ChatView_Previews: PreviewProvider {
     static var previews: some View {
         let conversation = Conversation()
         conversation.addMessage(Message(
-            id: UUID(),
             content: "Hello!",
             timestamp: Date(),
             isFromUser: true,
@@ -382,14 +305,13 @@ struct ChatView_Previews: PreviewProvider {
         ))
         
         conversation.addMessage(Message(
-            id: UUID(),
             content: "Hi there! How can I help you today?",
             timestamp: Date(),
             isFromUser: false,
             status: .sent
         ))
         
-        return ChatView(conversation: conversation)
+        return ChatView(conversation: conversation, llmService: LLMService.shared)
             .environmentObject(AppState.shared)
             .frame(width: 400, height: 600)
     }

@@ -1,13 +1,14 @@
 import Foundation
 import Combine
 import SwiftUI
+import LLMService
 
 // MARK: - App State
 
 /// The main app state that manages the application's data and state.
 /// This class is responsible for managing conversations, projects, and their persistence.
 @MainActor
-final class AppState: ObservableObject {
+public final class AppState: ObservableObject {
     // MARK: - Private Properties
     
     private let saveQueue = DispatchQueue(label: "com.seraph.appstate.save")
@@ -18,16 +19,16 @@ final class AppState: ObservableObject {
     
     // MARK: - Computed Properties
     
-    var recentChats: [Conversation] {
+    public var recentChats: [Conversation] {
         conversations.filter { $0.projectId == nil }
     }
     
-    var selectedConversation: Conversation? {
+    public var selectedConversation: Conversation? {
         guard let id = selectedConversationId else { return nil }
         return conversations.first { $0.id == id }
     }
     
-    var selectedProject: Project? {
+    public var selectedProject: Project? {
         guard let id = selectedProjectId else { return nil }
         return projects.first { $0.id == id }
     }
@@ -38,17 +39,19 @@ final class AppState: ObservableObject {
     @Published public private(set) var projects: [Project] = []
     @Published public private(set) var selectedConversationId: UUID?
     @Published public private(set) var selectedProjectId: UUID?
-    @Published public private(set) var currentModel: String = AIModel.defaultModel.id
+    @Published public private(set) var currentModel: String = AIModel.defaultModel.rawValue
+    @Published public private(set) var llmService: LLMService
     
     // MARK: - Shared Instance
     
     /// The shared instance of AppState for global access
-    @MainActor public static let shared = AppState()
+    @MainActor public static let shared = AppState(llmService: LLMService.shared)
     
     // MARK: - Initialization
     
-    private init(userDefaults: UserDefaults = .standard) {
+    public init(userDefaults: UserDefaults = .standard, llmService: LLMService) {
         self.userDefaults = userDefaults
+        self.llmService = llmService
         setupBindings()
         loadState()
     }
@@ -56,7 +59,7 @@ final class AppState: ObservableObject {
     // MARK: - Public Methods
     
     /// Creates a new conversation with the given parameters
-    func createNewConversation(
+    public func createNewConversation(
         title: String = "New Conversation",
         systemPrompt: String = "",
         inProject projectId: UUID? = nil
@@ -137,6 +140,20 @@ final class AppState: ObservableObject {
         return project
     }
     
+    /// Sets the current model
+    /// - Parameter model: The model to set as current
+    public func setCurrentModel(_ model: AIModel) {
+        currentModel = model.rawValue
+        saveState()
+    }
+    
+    /// Sets the selected conversation
+    /// - Parameter conversation: The conversation to select
+    public func setSelectedConversation(_ conversation: Conversation) {
+        selectedConversationId = conversation.id
+        saveState()
+    }
+    
     // MARK: - Private Methods
     
     private func setupBindings() {
@@ -162,7 +179,6 @@ final class AppState: ObservableObject {
         // Load conversations
         if let conversationsData = UserDefaults.standard.data(forKey: "conversations") {
             do {
-                let decoder = JSONDecoder()
                 let decodedConversations = try decoder.decode([Conversation].self, from: conversationsData)
                 DispatchQueue.main.async {
                     self.conversations = decodedConversations
@@ -176,7 +192,6 @@ final class AppState: ObservableObject {
         // Load projects
         if let projectsData = UserDefaults.standard.data(forKey: "projects") {
             do {
-                let decoder = JSONDecoder()
                 let decodedProjects = try decoder.decode([Project].self, from: projectsData)
                 DispatchQueue.main.async {
                     self.projects = decodedProjects
@@ -214,7 +229,7 @@ final class AppState: ObservableObject {
         let selectedProjectId = selectedProjectId
         
         // Save to disk on a background queue
-        DispatchQueue.global(qos: .utility).async { [weak self] in
+        DispatchQueue.global(qos: .utility).async {
             do {
                 let encoder = JSONEncoder()
                 
@@ -233,7 +248,6 @@ final class AppState: ObservableObject {
                 print("✅ App state saved successfully")
             } catch {
                 print("❌ Failed to save app state: \(error)")
-                print("Failed to save app state: \(error)")
             }
         }
     }
@@ -245,26 +259,26 @@ final class AppState: ObservableObject {
 @MainActor
 extension AppState {
     static var preview: AppState {
-        let state = AppState()
+        let state = AppState(llmService: LLMService.shared)
         
         // Add some sample conversations
         let conversation1 = state.createNewConversation(title: "Sample Chat 1")
         let message1 = Message(content: "Hello, how are you?", timestamp: Date().addingTimeInterval(-3600), isFromUser: true)
         let message2 = Message(content: "I'm doing well, thank you! How can I help you today?", timestamp: Date().addingTimeInterval(-3500), isFromUser: false)
-        try? conversation1.addMessage(message1)
-        try? conversation1.addMessage(message2)
+        conversation1.addMessage(message1)
+        conversation1.addMessage(message2)
         
         let conversation2 = state.createNewConversation(title: "Sample Chat 2")
         let message3 = Message(content: "What's the weather like?", timestamp: Date().addingTimeInterval(-1800), isFromUser: true)
         let message4 = Message(content: "I'm sorry, I don't have access to real-time weather data.", timestamp: Date().addingTimeInterval(-1750), isFromUser: false)
-        try? conversation2.addMessage(message3)
-        try? conversation2.addMessage(message4)
+        conversation2.addMessage(message3)
+        conversation2.addMessage(message4)
         
         // Add a sample project
         let project = state.createNewProject(name: "Sample Project")
         let projectConversation = state.createNewConversation(title: "Project Chat 1", inProject: project.id)
         let projectMessage = Message(content: "Let's work on the project", timestamp: Date().addingTimeInterval(-900), isFromUser: true)
-        try? projectConversation.addMessage(projectMessage)
+        projectConversation.addMessage(projectMessage)
         
         state.selectedConversationId = conversation1.id
         

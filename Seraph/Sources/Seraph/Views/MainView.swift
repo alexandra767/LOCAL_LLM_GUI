@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import LLMService
 
 @available(macOS 14.0, *)
 
@@ -13,69 +14,77 @@ public struct MainView: View {
     
     public init() {}
     
+    private func chatView(for id: UUID) -> AnyView {
+        if let conversation = appState.conversations.first(where: { $0.id == id }) {
+            AnyView(
+                ChatView(
+                    conversation: conversation,
+                    llmService: appState.llmService
+                )
+                .environmentObject(appState)
+            )
+        } else {
+            AnyView(
+                ContentUnavailableView("Conversation not found", systemImage: "bubble.left")
+            )
+        }
+    }
+    
+    private func projectView(for id: UUID) -> AnyView {
+        if let project = appState.projects.first(where: { $0.id == id }) {
+            AnyView(
+                ProjectView(project: project)
+                    .environmentObject(appState)
+            )
+        } else {
+            AnyView(
+                ContentUnavailableView("Project not found", systemImage: "folder")
+            )
+        }
+    }
+    
+    private func detailView(for selection: NavigationDestination) -> AnyView {
+        switch selection {
+        case .chat(let id):
+            chatView(for: id)
+        case .project(let id):
+            projectView(for: id)
+        case .settings:
+            AnyView(SettingsView())
+        case .chats:
+            AnyView(
+                List(appState.conversations.filter { $0.projectId == nil }) { conversation in
+                    Text(conversation.title)
+                }
+                .navigationTitle("Chats")
+            )
+        case .projects:
+            AnyView(
+                List(appState.projects) { project in
+                    Text(project.name)
+                }
+                .navigationTitle("Projects")
+            )
+        }
+    }
+    
     public var body: some View {
         NavigationSplitView {
             SidebarView(
                 selection: $selection,
-                selectedConversationId: $selectedConversationId,
-                selectedProjectId: $selectedProjectId
+                appState: appState
             )
         } detail: {
             NavigationStack {
                 if let selection = selection {
-                    switch selection {
-                        case .chat(let id):
-                            if let conversation = appState.recentChats.first(where: { $0.id == id }) {
-                                ChatView(conversation: conversation)
-                            } else {
-                                ContentUnavailableView("Conversation not found", systemImage: "bubble.left")
-                            }
-                        case .project(let id):
-                            if let project = appState.projects.first(where: { $0.id == id }) {
-                                ProjectView(
-                                    project: Binding(
-                                        get: { project },
-                                        set: { _ in }
-                                    )
-                                )
-                                .environmentObject(appState)
-                            } else {
-                                ContentUnavailableView("Project not found", systemImage: "folder")
-                            }
-                        case .settings:
-                            SettingsView()
-                        case .chats:
-                            // Show a list of all chats
-                            if appState.recentChats.isEmpty {
-                                ContentUnavailableView("No Chats", systemImage: "bubble.left")
-                            } else {
-                                List(appState.recentChats) { conversation in
-                                    // Add chat list view here
-                                    Text(conversation.title)
-                                }
-                                .navigationTitle("Chats")
-                            }
-                        case .projects:
-                            // Show a list of all projects
-                            if appState.projects.isEmpty {
-                                ContentUnavailableView("No Projects", systemImage: "folder")
-                            } else {
-                                List(appState.projects) { project in
-                                    // Add project list view here
-                                    Text(project.name)
-                                }
-                                .navigationTitle("Projects")
-                            }
-                    }
+                    detailView(for: selection)
                 } else {
-                    // Default empty state
                     ContentUnavailableView("Select a conversation or project", systemImage: "bubble.left")
                 }
             }
         }
         .onAppear {
-            // Load initial state if needed
-            if appState.recentChats.isEmpty {
+            if appState.conversations.isEmpty {
                 Task {
                     appState.createNewConversation(title: "New Chat")
                 }
@@ -101,7 +110,6 @@ struct MainView_Previews: PreviewProvider {
     static var previews: some View {
         let appState = AppState.preview
         
-        // Create a preview container that properly sets up the environment
         PreviewContainer(appState: appState) {
             MainView()
                 .frame(width: 1200, height: 800)
@@ -126,17 +134,13 @@ struct MainView_Previews: PreviewProvider {
                     previewDataLoaded = true
                     
                     Task {
-                        // Create a sample conversation
                         _ = appState.createNewConversation(title: "Sample Chat")
                         
-                        // Create a sample project
-                        let project = Project(
+                        let project = appState.createNewProject(
                             name: "Sample Project",
                             description: "A sample project"
                         )
-                        _ = appState.createProject(title: project.name)
                         
-                        // Create a conversation in the project
                         _ = appState.createNewConversation(
                             title: "Project Chat",
                             inProject: project.id
@@ -144,7 +148,5 @@ struct MainView_Previews: PreviewProvider {
                     }
                 }
         }
-        
-
     }
 }

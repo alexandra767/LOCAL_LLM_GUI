@@ -14,6 +14,10 @@ let package = Package(
             name: "Seraph",
             targets: ["Seraph"]
         ),
+        .library(
+            name: "LLMService",
+            targets: ["LLMService"]
+        ),
         .executable(
             name: "SeraphApp",
             targets: ["SeraphApp"]
@@ -28,8 +32,22 @@ let package = Package(
         .target(
             name: "Seraph",
             dependencies: [
-                .product(name: "CombineExt", package: "CombineExt")
+                .product(name: "CombineExt", package: "CombineExt"),
+                "LLMService"
             ],
+            swiftSettings: [
+                .define("DEBUG", .when(configuration: .debug)),
+                .define("RELEASE", .when(configuration: .release)),
+                .unsafeFlags(["-enable-library-evolution"]),  // For better module stability
+                .unsafeFlags(["-enable-testing"])
+            ]
+        ),
+        
+        // LLM Service target
+        .target(
+            name: "LLMService",
+            dependencies: [],
+            path: "Sources/LLMService",
             swiftSettings: [
                 .define("DEBUG", .when(configuration: .debug)),
                 .define("RELEASE", .when(configuration: .release)),

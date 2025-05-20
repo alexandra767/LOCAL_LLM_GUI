@@ -2,10 +2,6 @@ import SwiftUI
 import UniformTypeIdentifiers
 import Combine
 
-// Import models
-import class Seraph.AppState
-import struct Seraph.AIModel
-
 /// A view that displays the app settings and preferences
 public struct SettingsView: View {
     @EnvironmentObject private var appState: AppState
@@ -33,31 +29,12 @@ public struct SettingsView: View {
         Form {
             Section(header: Text("Model")) {
                 Picker("Model", selection: $selectedModel) {
-                    // Built-in models
-                    Section(header: Text("Built-in Models")) {
-                        ForEach(AIModel.localBuiltInModels, id: \.id) { model in
-                            Text(model.displayName).tag(model as AIModel)
-                        }
-                    }
-                    
-                    // Local models
-                    if !localModels.isEmpty {
-                        Section(header: Text("Local Models")) {
-                            ForEach(localModels, id: \.id) { model in
-                                Text(model.displayName).tag(model as AIModel)
-                            }
-                        }
-                    }
-                    
-                    // API-based models
-                    Section(header: Text("API Models")) {
-                        ForEach(AIModel.apiModels, id: \.id) { model in
-                            Text(model.displayName).tag(model as AIModel)
-                        }
+                    ForEach(AIModel.allModels) { model in
+                        Text(model.displayName).tag(model)
                     }
                 }
-                .onChange(of: selectedModel) { newValue in
-                    appState.currentModel = newValue.rawValue
+                .onChange(of: selectedModel) { newModel in
+                    appState.setCurrentModel(newModel)
                 }
                 
                 // Model description
@@ -68,11 +45,10 @@ public struct SettingsView: View {
                 }
                 
                 // Model path if it's a local model
-                if let modelPath = selectedModel.modelPath {
-                    Text("Path: \(modelPath)")
+                if let path = selectedModel.modelPath {
+                    Text("Path: \(path)")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                        .lineLimit(2)
                 }
                 
                 VStack(alignment: .leading) {
@@ -133,41 +109,23 @@ public struct SettingsView: View {
                 }
                 
                 if !localModels.isEmpty {
-                    ForEach(localModels.indices, id: \.self) { index in
+                    ForEach(localModels) { model in
                         HStack {
                             VStack(alignment: .leading) {
-                                Text(localModels[index].displayName)
-                                if let path = localModels[index].modelPath {
-                                    Text(URL(fileURLWithPath: path).lastPathComponent)
+                                Text(model.displayName)
+                                    .font(.headline)
+                                if !model.description.isEmpty {
+                                    Text(model.description)
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                 }
                             }
                             Spacer()
-                            Button(action: {
-                                // Remove the local model
-                                let modelToRemove = localModels[index]
-                                if let savedModels = UserDefaults.standard.array(forKey: "customLocalModels") as? [[String: String]] {
-                                    let updatedModels = savedModels.filter { modelData in
-                                        guard let path = modelData["path"] else { return true }
-                                        return modelToRemove.modelPath != path
-                                    }
-                                    UserDefaults.standard.set(updatedModels, forKey: "customLocalModels")
-                                    
-                                    // Update UI
-                                    loadLocalModels()
-                                    
-                                    // If the removed model was selected, switch to default
-                                    if selectedModel.id == modelToRemove.id {
-                                        selectedModel = AIModel.defaultModel
-                                        appState.currentModel = selectedModel.id
-                                    }
-                                }
-                            }) {
+                            Button(action: { removeLocalModel(model) }) {
                                 Image(systemName: "trash")
                                     .foregroundColor(.red)
                             }
-                            .buttonStyle(BorderlessButtonStyle())
+                            .buttonStyle(PlainButtonStyle())
                         }
                     }
                 } else {
@@ -256,43 +214,54 @@ public struct SettingsView: View {
     }
     
     private func addLocalModel() {
-        guard let fileURL = selectedModelFile else { return }
+        guard !newModelName.isEmpty, let fileURL = selectedModelFile else { return }
         
-        // Generate a display name if none provided
-        let displayName = newModelName.isEmpty ? fileURL.deletingPathExtension().lastPathComponent : newModelName
-        let description = newModelDescription.isEmpty ? "Local model at \(fileURL.lastPathComponent)" : newModelDescription
+        let newModel = AIModel.localModel(
+            name: newModelName,
+            path: fileURL.path,
+            displayName: newModelName,
+            description: newModelDescription
+        )
         
-        // Add the model to UserDefaults
+        // Add to local models
+        localModels.append(newModel)
+        
+        // Save to UserDefaults
         var savedModels = UserDefaults.standard.array(forKey: "customLocalModels") as? [[String: String]] ?? []
+        savedModels.append([
+            "name": newModelName,
+            "path": fileURL.path,
+            "displayName": newModelName,
+            "description": newModelDescription
+        ])
+        UserDefaults.standard.set(savedModels, forKey: "customLocalModels")
         
-        // Check if model with same path already exists
-        if !savedModels.contains(where: { $0["path"] == fileURL.path }) {
-            let modelData: [String: String] = [
-                "name": fileURL.deletingPathExtension().lastPathComponent,
-                "path": fileURL.path,
-                "displayName": displayName,
-                "description": description
-            ]
-            savedModels.append(modelData)
-            UserDefaults.standard.set(savedModels, forKey: "customLocalModels")
+        // Update UI
+        loadLocalModels()
+        
+        // Reset form
+        selectedModelFile = nil
+        newModelName = ""
+        newModelDescription = ""
+    }
+    
+    private func removeLocalModel(_ model: AIModel) {
+        // Remove the local model
+        if let savedModels = UserDefaults.standard.array(forKey: "customLocalModels") as? [[String: String]] {
+            let updatedModels = savedModels.filter { modelData in
+                guard let path = modelData["path"] else { return true }
+                return model.modelPath != path
+            }
+            UserDefaults.standard.set(updatedModels, forKey: "customLocalModels")
             
-            // Reload models
+            // Update UI
             loadLocalModels()
             
-            // Select the newly added model if any
-            if let newModel = localModels.first(where: { $0.modelPath == fileURL.path }) {
-                selectedModel = newModel
-                appState.currentModel = newModel.id
+            // If the removed model was selected, switch to default
+            if selectedModel.id == model.id {
+                selectedModel = AIModel.defaultModel
+                appState.setCurrentModel(selectedModel)
             }
-            
-            // Reset the form
-            selectedModelFile = nil
-            newModelName = ""
-            newModelDescription = ""
-            
-            // Force UI update by updating the selected model
-            let currentModel = selectedModel
-            selectedModel = currentModel
         }
     }
 }

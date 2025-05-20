@@ -29,42 +29,42 @@ public final class Conversation: ConversationProtocol, Identifiable, ObservableO
     
     public var title: String {
         get { accessQueue.sync { _title } }
-        set { updateProperty("title", newValue: newValue) }
+        set { updateProperty(\Conversation._title, newValue: newValue) }
     }
     
     public var lastMessage: String {
         get { accessQueue.sync { _lastMessage } }
-        set { updateProperty("lastMessage", newValue: newValue) }
+        set { updateProperty(\Conversation._lastMessage, newValue: newValue) }
     }
     
     public var timestamp: Date {
         get { accessQueue.sync { _timestamp } }
-        set { updateProperty("timestamp", newValue: newValue) }
+        set { updateProperty(\Conversation._timestamp, newValue: newValue) }
     }
     
     public var unreadCount: Int {
         get { accessQueue.sync { _unreadCount } }
-        set { updateProperty("unreadCount", newValue: newValue) }
+        set { updateProperty(\Conversation._unreadCount, newValue: newValue) }
     }
     
     public var projectId: UUID? {
         get { accessQueue.sync { _projectId } }
-        set { updateProperty("projectId", newValue: newValue) }
+        set { updateProperty(\Conversation._projectId, newValue: newValue) }
     }
     
     public var systemPrompt: String {
         get { accessQueue.sync { _systemPrompt } }
-        set { updateProperty("systemPrompt", newValue: newValue) }
+        set { updateProperty(\Conversation._systemPrompt, newValue: newValue) }
     }
     
     public var messages: [Message] {
         get { accessQueue.sync { _messages } }
-        set { updateProperty("messages", newValue: newValue) }
+        set { updateProperty(\Conversation._messages, newValue: newValue) }
     }
     
     public var isPinned: Bool {
         get { accessQueue.sync { _isPinned } }
-        set { updateProperty("isPinned", newValue: newValue) }
+        set { updateProperty(\Conversation._isPinned, newValue: newValue) }
     }
     
     // MARK: - Initialization
@@ -100,38 +100,32 @@ public final class Conversation: ConversationProtocol, Identifiable, ObservableO
     
     // MARK: - Thread-Safe Property Updates
     
-    private func updateProperty<T>(_ property: String, newValue: T) {
+    private func updateProperty<T>(_ keyPath: ReferenceWritableKeyPath<Conversation, T>, newValue: T) {
         accessQueue.async(flags: .barrier) { [weak self] in
             guard let self = self else { return }
             
-            // Use direct property access
-            switch property {
-            case "title":
+            // Use direct property access for reference types
+            switch keyPath {
+            case \Conversation._title:
                 self._title = newValue as! String
-            case "lastMessage":
+            case \Conversation._lastMessage:
                 self._lastMessage = newValue as! String
-            case "timestamp":
+            case \Conversation._timestamp:
                 self._timestamp = newValue as! Date
-            case "unreadCount":
+            case \Conversation._unreadCount:
                 self._unreadCount = newValue as! Int
-            case "projectId":
+            case \Conversation._projectId:
                 self._projectId = newValue as? UUID
-            case "systemPrompt":
+            case \Conversation._systemPrompt:
                 self._systemPrompt = newValue as! String
-            case "messages":
+            case \Conversation._messages:
                 self._messages = newValue as! [Message]
-            case "isPinned":
+            case \Conversation._isPinned:
                 self._isPinned = newValue as! Bool
             default:
                 break
             }
             
-            // Update the timestamp
-            if property != "timestamp" {
-                self.updatedAt = Date()
-            }
-            
-            // Notify observers on the main thread
             Task { @MainActor in
                 self.objectWillChange.send()
             }

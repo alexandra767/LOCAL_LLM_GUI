@@ -3,8 +3,14 @@ import Seraph
 
 @main
 @available(macOS 13.0, *)
+@MainActor
 struct SeraphApp: App {
-    @StateObject private var appState = AppState.shared
+    @StateObject private var appState: AppState
+    
+    init() {
+        // Initialize AppState on the main thread
+        _appState = StateObject(wrappedValue: AppState.shared)
+    }
     
     var body: some Scene {
         WindowGroup {
@@ -20,12 +26,11 @@ struct SeraphApp: App {
             .frame(minWidth: 800, minHeight: 600)
         }
         .commands {
-            SidebarCommands()
-            ToolbarCommands()
-            
             CommandGroup(after: .newItem) {
                 Button("New Chat") {
-                    _ = appState.createNewConversation()
+                    Task { 
+                        appState.createNewConversation()
+                    }
                 }
                 .keyboardShortcut("n", modifiers: .command)
                 
@@ -40,6 +45,9 @@ struct SeraphApp: App {
                     // TODO: Show about window
                 }
             }
+            
+            SidebarCommands()
+            ToolbarCommands()
         }
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)

@@ -11,7 +11,7 @@ public final class ProjectViewModel: ObservableObject, Sendable {
     @Published var showingDeleteConfirmation = false
     
     let project: Project
-    let appState: AppState
+    @ObservedObject var appState: AppState
     
     init(project: Project, appState: AppState) {
         self.project = project
@@ -43,8 +43,18 @@ public final class ProjectViewModel: ObservableObject, Sendable {
         appState.saveState()
     }
     
-    func selectConversation(_ conversationId: String) {
-        appState.selectedConversationId = conversationId
+    func selectConversation(_ conversationId: UUID) {
+        Task { @MainActor in
+            if let conversation = appState.conversations.first(where: { $0.id == conversationId }) {
+                let newConversation = appState.createNewConversation(
+                    title: conversation.title,
+                    systemPrompt: conversation.systemPrompt,
+                    inProject: conversation.projectId
+                )
+                // Update the selected conversation through the app state
+                appState.setSelectedConversation(newConversation)
+            }
+        }
     }
     
     func moveConversation(from source: IndexSet, to destination: Int) {
@@ -55,6 +65,7 @@ public final class ProjectViewModel: ObservableObject, Sendable {
 /// A view that displays the details of a project and its related conversations
 public struct ProjectView: View {
     @StateObject private var viewModel: ProjectViewModel
+    @EnvironmentObject private var appState: AppState
     
     public init(project: Project) {
         _viewModel = StateObject(wrappedValue: ProjectViewModel(project: project, appState: AppState.shared))
@@ -72,7 +83,7 @@ public struct ProjectView: View {
     }
     
     private var projectConversations: [Conversation] {
-        viewModel.appState.conversations.filter { $0.projectId == viewModel.project.id }
+        appState.conversations.filter { $0.projectId == viewModel.project.id }
     }
     
     @MainActor
@@ -146,7 +157,7 @@ public struct ProjectView: View {
                     
                     Spacer()
                     
-                    Text("Created: \(project.createdAt.formatted(date: .abbreviated, time: .omitted))")
+                    Text("Created: \(viewModel.project.createdAt.formatted(date: .abbreviated, time: .omitted))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -203,28 +214,26 @@ public struct ProjectView: View {
         .sheet(isPresented: $viewModel.showingNewConversationSheet) {
             NavigationStack {
                 Form {
-                    TextField("Conversation Title", text: $viewModel.newConversationTitle)
+                    Section {
+                        TextField("Conversation Title", text: $viewModel.newConversationTitle)
+                    }
                 }
                 .navigationTitle("New Conversation")
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Cancel") {
                             viewModel.showingNewConversationSheet = false
-                            viewModel.newConversationTitle = ""
                         }
                     }
                     ToolbarItem(placement: .confirmationAction) {
                         Button("Create") {
-                            let conversation = viewModel.createNewConversation()
-                            viewModel.appState.selectedConversationId = conversation.id
+                            _ = createNewConversation()
                             viewModel.showingNewConversationSheet = false
-                            viewModel.newConversationTitle = ""
                         }
-                        .disabled(viewModel.newConversationTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                 }
             }
-            .frame(minWidth: 400, minHeight: 200)
+            .frame(minWidth: 300, minHeight: 150)
         }
     }
 }
