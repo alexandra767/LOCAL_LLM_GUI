@@ -308,7 +308,7 @@ private struct NewProjectView: View {
     appState.addProject(project1)
     appState.addProject(project2)
     
-    return SidebarView(
+    SidebarView(
         selection: .constant(.chat(id: conversation1.id)),
         appState: appState
     )
